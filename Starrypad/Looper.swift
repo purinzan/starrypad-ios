@@ -19,6 +19,7 @@ final class Looper: ObservableObject {
 
     enum State: Equatable {
         case idle
+        case countIn          // a bar of clicks before the take begins
         case recording        // recording over the top, always also playing
         case playing
     }
@@ -32,11 +33,17 @@ final class Looper: ObservableObject {
 
     /// Called on the main queue when a recorded hit comes back round.
     var onFire: ((Int, Int) -> Void)?
+    /// Called on each beat of the count-in; true on the first beat of the bar.
+    var onClick: ((Bool) -> Void)?
+
+    /// Beats left in the count-in, for the transport to show.
+    @Published private(set) var countRemaining = 0
 
     var totalBeats: Double { Double(bars * 4) }
     var canUndo: Bool { !history.isEmpty }
 
     private var startedAt: CFTimeInterval?
+    private var lastCountBeat = -1
     private var lastPosition: Double = 0
     private var timer: DispatchSourceTimer?
     private var history: [[Event]] = []
@@ -56,14 +63,25 @@ final class Looper: ObservableObject {
         switch state {
         case .recording:
             state = .playing                 // drop out of record, keep looping
+        case .countIn:
+            // Pressing record during the count cancels it, and nothing that
+            // was already there is touched.
+            stop()
         case .playing:
             pushHistory()
             state = .recording
         case .idle:
             pushHistory()
-            begin()
-            state = .recording
+            beginCountIn()
         }
+    }
+
+    /// One bar of clicks, then the take starts on the downbeat.
+    private func beginCountIn() {
+        countRemaining = 4
+        lastCountBeat = -1
+        state = .countIn
+        begin()
     }
 
     func togglePlay() {
@@ -72,7 +90,9 @@ final class Looper: ObservableObject {
             guard !events.isEmpty else { return }
             begin()
             state = .playing
-        case .playing, .recording:
+        case .playing, .recording, .countIn:
+            // Play is the stop button, and it stops a count-in too: nobody
+            // wants to sit through a bar they have changed their mind about.
             stop()
         }
     }
@@ -82,6 +102,8 @@ final class Looper: ObservableObject {
         timer = nil
         startedAt = nil
         lastPosition = 0
+        countRemaining = 0
+        lastCountBeat = -1
         state = .idle
     }
 
@@ -136,6 +158,10 @@ final class Looper: ObservableObject {
     }
 
     private func tick() {
+        if state == .countIn {
+            countInTick()
+            return
+        }
         let now = position
         let previous = lastPosition
         lastPosition = now
@@ -153,6 +179,32 @@ final class Looper: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self, let onFire = self.onFire else { return }
             for event in due { onFire(event.padID, event.velocity) }
+        }
+    }
+
+    /// The count runs on its own clock so the take can start at beat zero
+    /// rather than one bar in.
+    private func countInTick() {
+        guard let startedAt else { return }
+        let beats = (CACurrentMediaTime() - startedAt) * bpm / 60.0
+        let beat = Int(beats)
+        if beat > lastCountBeat, beat < 4 {
+            lastCountBeat = beat
+            let accent = beat == 0
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.countRemaining = 4 - beat
+                self.onClick?(accent)
+            }
+        }
+        guard beats >= 4 else { return }
+        // Restart the clock so the downbeat you just heard is the downbeat of
+        // the loop, not a bar before it.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.state == .countIn else { return }
+            self.countRemaining = 0
+            self.state = .recording
+            self.begin()
         }
     }
 

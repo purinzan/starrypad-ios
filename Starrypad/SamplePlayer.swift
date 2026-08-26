@@ -165,6 +165,41 @@ final class SamplePlayer {
         voice.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
     }
 
+    /// A count-in click, made rather than sampled.
+    ///
+    /// Two short pings, the first beat of the bar higher than the rest, so you
+    /// can hear where the bar starts without watching anything. Synthesised
+    /// because a click is a sine and a decay, and shipping a wav for that would
+    /// be a file to carry and a licence to explain.
+    func click(accent: Bool) {
+        let key = accent ? "click:accent" : "click:beat"
+        if buffers[key] == nil {
+            buffers[key] = Self.clickBuffer(hertz: accent ? 1600 : 1000, as: format)
+        }
+        guard let buffer = buffers[key] else { return }
+        let voice = voices[nextVoice]
+        nextVoice = (nextVoice + 1) % voices.count
+        voice.volume = 0.55
+        voice.pan = 0
+        voice.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
+    }
+
+    private static func clickBuffer(hertz: Double, as format: AVAudioFormat) -> AVAudioPCMBuffer? {
+        let seconds = 0.035
+        let frames = AVAudioFrameCount(format.sampleRate * seconds)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames),
+              let data = buffer.floatChannelData else { return nil }
+        for frame in 0..<Int(frames) {
+            let t = Double(frame) / format.sampleRate
+            // Steep decay: a click that rings is a tone, and a tone in a count
+            // in is something you play along with by mistake.
+            let value = Float(sin(2 * .pi * hertz * t) * exp(-t * 90))
+            for channel in 0..<Int(format.channelCount) { data[channel][frame] = value }
+        }
+        buffer.frameLength = frames
+        return buffer
+    }
+
     /// Peaks for drawing, at whatever resolution the view asks for.
     func peaks(for source: SoundSource, bins: Int) -> [Float] {
         guard let buffer = buffers[source.key], let data = buffer.floatChannelData else { return [] }

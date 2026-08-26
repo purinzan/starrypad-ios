@@ -39,6 +39,7 @@ struct ContentView: View {
     /// held right now, and while you are drumming it always is.
     @State private var pressToken = 0
     @State private var renaming = false
+    @State private var taps: [TimeInterval] = []
     @StateObject private var force = StrikeForce()
     @AppStorage("velocityFromForce") private var velocityFromForce = true
 
@@ -64,6 +65,7 @@ struct ContentView: View {
             padGrid
 
             LoopBar(looper: looper)
+            tempoRow
             screenPicker
             detail
         }
@@ -265,9 +267,56 @@ struct ContentView: View {
         }
     }
 
+    /// Tempo, which the count-in and the loop both run on.
+    private var tempoRow: some View {
+        HStack(spacing: 8) {
+            Text("TEMPO").font(.system(size: 10, weight: .semibold)).kerning(1.4)
+                .foregroundStyle(Palette.ink3)
+            Text("\(Int(looper.bpm))")
+                .font(.system(size: 17, weight: .medium, design: .monospaced))
+                .foregroundStyle(Palette.ink)
+                .frame(minWidth: 44, alignment: .leading)
+            Text("BPM").font(.system(size: 10)).foregroundStyle(Palette.ink3)
+            Spacer()
+            tempoButton("-") { looper.bpm = max(40, looper.bpm - 1) }
+            tempoButton("+") { looper.bpm = min(240, looper.bpm + 1) }
+            tempoButton("Tap", wide: true) { tapTempo() }
+        }
+    }
+
+    private func tempoButton(_ label: String, wide: Bool = false, act: @escaping () -> Void)
+        -> some View {
+        Button(action: act) {
+            Text(label)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Palette.ink)
+                .frame(width: wide ? 52 : 38, height: 30)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Palette.panel))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Palette.rule, lineWidth: 1))
+        }
+    }
+
+    /// Tempo from the gaps between taps, averaged, with a stale tap starting
+    /// a new count rather than dragging the average somewhere silly.
+    private func tapTempo() {
+        let now = Date().timeIntervalSince1970
+        if let last = taps.last, now - last > 2 { taps.removeAll() }
+        taps.append(now)
+        if taps.count > 5 { taps.removeFirst() }
+        guard taps.count >= 2 else { return }
+        let gaps = zip(taps, taps.dropFirst()).map { $1 - $0 }
+        let average = gaps.reduce(0, +) / Double(gaps.count)
+        guard average > 0 else { return }
+        looper.bpm = max(40, min(240, (60.0 / average).rounded()))
+    }
+
     private var transport: some View {
         HStack(spacing: 8) {
-            transportButton("Rec", tint: Palette.danger, on: looper.state == .recording) {
+            transportButton(
+                looper.state == .countIn ? "\(looper.countRemaining)" : "Rec",
+                tint: Palette.danger,
+                on: looper.state == .recording || looper.state == .countIn
+            ) {
                 looper.toggleRecord()
             }
             transportButton("Play", tint: Palette.accent, on: looper.state == .playing) {
@@ -401,6 +450,7 @@ struct ContentView: View {
         // log when someone says the app feels slow.
         print(String(format: "output latency %.2f ms", player.outputLatencyMilliseconds))
         player.start()
+        looper.onClick = { accent in player.click(accent: accent) }
         looper.onFire = { slotID, velocity in
             guard rack.slots.indices.contains(slotID) else { return }
             strike(rack.slots[slotID], velocity: velocity, record: false)
