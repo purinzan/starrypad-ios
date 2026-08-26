@@ -6,8 +6,10 @@ import SwiftUI
 /// console, and the pad you are editing is the one you just hit.
 struct MixerView: View {
     @ObservedObject var rack: Rack
+    @Binding var master: Double
     var onTune: () -> Void
     var onAudition: () -> Void
+    var onMaster: () -> Void
 
     private var slot: PadSlot { rack.slots[rack.selected] }
 
@@ -23,6 +25,12 @@ struct MixerView: View {
                 Button("Hear", action: onAudition)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Palette.ink)
+            }
+
+            knobRow("MASTER", value: String(format: "%+.0f dB", master)) {
+                Slider(value: $master, in: 0...12, step: 0.5,
+                       onEditingChanged: { editing in if !editing { onMaster() } })
+                    .tint(Palette.danger)
             }
 
             knobRow("LEVEL", value: String(format: "%.0f%%", slot.level * 100)) {

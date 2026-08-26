@@ -116,7 +116,12 @@ struct SamplerView: View {
 
     private func micTapped() {
         if recorder.isRecording {
-            guard let name = recorder.stop() else {
+            let name = recorder.stop()
+            // Hand the output route back straight away: playAndRecord is the
+            // quiet one, and nothing should be played through it once the
+            // microphone is closed.
+            player.endRecordingRoute()
+            guard let name else {
                 status = "That was too short to keep"
                 return
             }
@@ -127,7 +132,11 @@ struct SamplerView: View {
                     status = "Microphone access is off. Settings › Starrypad › Microphone."
                     return
                 }
-                if !recorder.start() { status = "Could not start recording" }
+                player.beginRecordingRoute()
+                if !recorder.start() {
+                    player.endRecordingRoute()
+                    status = "Could not start recording"
+                }
             }
         }
     }

@@ -19,6 +19,7 @@ struct ContentView: View {
     @State private var draft = PadSlot(id: 0, source: .builtIn(file: ""), label: "", hue: .clear)
     @State private var status: String?
     @State private var pickingVideo = false
+    @State private var master = Double(SamplePlayer.defaultMakeupDecibels)
 
     private enum Screen: String, CaseIterable { case play = "Pads", mix = "Mixer", sample = "Sampler" }
 
@@ -142,9 +143,10 @@ struct ContentView: View {
         case .play:
             transport
         case .mix:
-            MixerView(rack: rack,
+            MixerView(rack: rack, master: $master,
                       onTune: { player.invalidate(rack.slots[rack.selected].source) },
-                      onAudition: { strike(rack.slots[rack.selected], velocity: 110, record: false) })
+                      onAudition: { strike(rack.slots[rack.selected], velocity: 110, record: false) },
+                      onMaster: { player.makeupDecibels = Float(master) })
         case .sample:
             SamplerView(
                 rack: rack, recorder: recorder, player: player,

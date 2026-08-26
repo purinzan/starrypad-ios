@@ -10,6 +10,10 @@ import AVFoundation
 final class SamplePlayer {
 
     private let engine = AVAudioEngine()
+    /// A gain stage the voices run through. AVAudioPlayerNode.volume and the
+    /// main mixer both stop at 1.0, so making the app louder than "every voice
+    /// flat out" needs somewhere that deals in decibels.
+    private let makeup = AVAudioUnitEQ(numberOfBands: 0)
     private var voices: [AVAudioPlayerNode] = []
     private var buffers: [String: AVAudioPCMBuffer] = [:]
     /// Trimmed and tuned versions, keyed by what made them. Deriving a buffer
@@ -21,28 +25,52 @@ final class SamplePlayer {
 
     init(voiceCount: Int = 24) {
         format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
-        configureSession()
+        configureSession(recording: false)
+        engine.attach(makeup)
+        makeup.globalGain = Self.defaultMakeupDecibels
+        engine.connect(makeup, to: engine.mainMixerNode, format: format)
         for _ in 0..<voiceCount {
             let node = AVAudioPlayerNode()
             engine.attach(node)
-            engine.connect(node, to: engine.mainMixerNode, format: format)
+            engine.connect(node, to: makeup, format: format)
             voices.append(node)
         }
     }
 
-    private func configureSession() {
+    /// How much louder than unity the pads run by default.
+    static let defaultMakeupDecibels: Float = 6
+
+    /// Playback normally, playAndRecord only while the microphone is open.
+    ///
+    /// This is not a detail. iOS routes playAndRecord to the speakerphone and
+    /// holds the level well below what playback gets, so leaving the session in
+    /// playAndRecord all the time - which is what shipping the sampler first
+    /// did - makes the whole instrument quiet even when nothing is recording.
+    private func configureSession(recording: Bool) {
         let session = AVAudioSession.sharedInstance()
         do {
-            // playAndRecord rather than playback: the sampler records from the
-            // microphone, and switching category mid-session interrupts audio.
-            try session.setCategory(.playAndRecord, mode: .default,
-                                    options: [.defaultToSpeaker, .allowBluetoothA2DP, .mixWithOthers])
+            if recording {
+                try session.setCategory(.playAndRecord, mode: .default,
+                                        options: [.defaultToSpeaker, .allowBluetoothA2DP])
+            } else {
+                try session.setCategory(.playback, mode: .default, options: [.allowBluetoothA2DP])
+            }
             try session.setPreferredIOBufferDuration(0.003)
             try session.setPreferredSampleRate(48000)
             try session.setActive(true)
         } catch {
             print("audio session: \(error)")
         }
+    }
+
+    /// Open the input route for the duration of a recording, then give it back.
+    func beginRecordingRoute() { configureSession(recording: true) }
+    func endRecordingRoute() { configureSession(recording: false) }
+
+    /// Extra output gain in decibels, 0 to +12.
+    var makeupDecibels: Float {
+        get { makeup.globalGain }
+        set { makeup.globalGain = max(0, min(12, newValue)) }
     }
 
     /// Decode every kit sample up front. Returns how many loaded.
