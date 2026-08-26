@@ -34,6 +34,10 @@ struct ContentView: View {
 
     @State private var pressOrigin: CGPoint?
     @State private var dragged = false
+    /// Which press the pending hold timer belongs to. Without it, the timer
+    /// from one tap fires during a later tap - it only checks that the pad is
+    /// held right now, and while you are drumming it always is.
+    @State private var pressToken = 0
 
     private let holdSeconds = 0.45
     /// How far a finger may wander and still count as staying put. A finger
@@ -349,13 +353,14 @@ struct ContentView: View {
                             touching.insert(slot.id)
                             pressOrigin = touch.location
                             dragged = false
+                            pressToken &+= 1
                             // Touch carries no velocity, so the pad does: the
                             // higher up you hit it, the harder it lands.
                             let local = touch.location.y - geometry.frame(in: .named("grid")).minY
                             let depth = 1.0 - min(max(local / geometry.size.height, 0), 1)
                             rack.selected = slot.id
                             strike(slot, velocity: 24 + Int(depth * 103))
-                            beginHoldTimer(for: slot.id)
+                            beginHoldTimer(for: slot.id, token: pressToken)
                         }
                         if let origin = pressOrigin,
                            hypot(touch.location.x - origin.x, touch.location.y - origin.y) > driftLimit {
@@ -404,10 +409,11 @@ struct ContentView: View {
 
     /// A held pad that has not moved yet opens the picker; one dragged onto
     /// another swaps the two.
-    private func beginHoldTimer(for id: Int) {
+    private func beginHoldTimer(for id: Int, token: Int) {
         DispatchQueue.main.asyncAfter(deadline: .now() + holdSeconds) {
-            // A finger that has already set off is playing, not holding.
-            guard touching.contains(id), held == nil, !dragged else { return }
+            // Same press, still down, still still. The token is what makes the
+            // first condition mean "this press" rather than "any press".
+            guard pressToken == token, touching.contains(id), held == nil, !dragged else { return }
             held = id
             swapTarget = nil
             UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
