@@ -17,12 +17,34 @@ struct SamplerView: View {
 
     var onAssign: () -> Void
     var onPreview: () -> Void
+    var onPreviewSlot: () -> Void
     var onPickVideo: () -> Void
     var onDiscard: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             if pending == nil {
+                // A pad already holding a recording opens on its region, so
+                // trimming is something you come back to rather than one
+                // chance you get while the sample is still warm. The whole
+                // file is always there, so an edge can go back out as easily
+                // as it came in.
+                if case .user = rack.slots[rack.selected].source {
+                    TrimView(
+                        slot: $rack.slots[rack.selected],
+                        peaks: player.peaks(for: rack.slots[rack.selected].source, bins: 320),
+                        seconds: player.seconds(of: rack.slots[rack.selected].source),
+                        onChange: {
+                            let slot = rack.slots[rack.selected]
+                            player.invalidate(slot.source)
+                            if case .user(let name) = slot.source {
+                                Recordings.setTrim(start: slot.start, end: slot.end, for: name)
+                            }
+                        },
+                        onPreview: { onPreviewSlot() }
+                    )
+                    Divider().overlay(Palette.rule)
+                }
                 capture
             } else {
                 TrimView(

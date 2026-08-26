@@ -47,21 +47,20 @@ enum Banks {
     static let slotCount = padCount * count
     static let names = ["A", "B", "C", "D"]
 
-    /// Bank A holds the shipped kit; the rest start empty and get filled by
-    /// sampling, which is the only way to put a new sound on a pad.
+    /// A is the acoustic kit, B the electronic one. C and D start as copies of
+    /// A, dimmed: an empty pad that makes no sound is a pad you cannot tell
+    /// from a broken one, so they are audible and simply marked as unclaimed.
     static func initialSlots() -> [PadSlot] {
         (0..<slotCount).map { id in
             let position = id % padCount
-            if id < padCount {
-                let pad = Kit.pads[position]
-                return PadSlot(id: id, source: .builtIn(file: pad.file),
-                               label: pad.sound, hue: pad.hue)
-            }
-            // An empty slot still points at a real sound so a stray hit is
-            // audible rather than a silent mystery; it is dimmed in the grid.
-            let pad = Kit.pads[position]
-            return PadSlot(id: id, source: .builtIn(file: pad.file),
-                           label: pad.sound, hue: Palette.ink3)
+            let bank = id / padCount
+            let pad = bank == 1 ? Kit.electronic[position] : Kit.acoustic[position]
+            var slot = PadSlot(id: id, source: .builtIn(file: pad.file),
+                               label: pad.sound, hue: bank > 1 ? Palette.ink3 : pad.hue)
+            slot.level = pad.gain
+            slot.tune = pad.tune
+            slot.end = 1
+            return slot
         }
     }
 
@@ -104,6 +103,17 @@ final class Rack: ObservableObject {
 
     func toggleMute(_ id: Int) { slots[id].muted.toggle() }
 
+    /// Rename a pad. For a recording the name belongs to the sample, so it
+    /// follows it onto any other pad; a kit sound is only renamed where it sits.
+    func rename(_ id: Int, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        slots[id].label = trimmed
+        if case .user(let file) = slots[id].source {
+            Recordings.setLabel(trimmed, for: file)
+        }
+    }
+
     func toggleSolo(_ id: Int) {
         if soloed.contains(id) { soloed.remove(id) } else { soloed.insert(id) }
     }
@@ -142,11 +152,14 @@ final class Rack: ObservableObject {
             let region = Recordings.trim(for: name)
             slots[id].start = region.start
             slots[id].end = region.end
+            slots[id].label = Recordings.label(for: name) ?? label
         case .builtIn(let file):
             slots[id].start = 0
             slots[id].end = 1
-            if let pad = Kit.pads.first(where: { $0.file == file }) {
+            if let pad = Kit.all.first(where: { $0.file == file }) {
                 slots[id].hue = pad.hue
+                slots[id].level = pad.gain
+                slots[id].tune = pad.tune
             }
         }
     }

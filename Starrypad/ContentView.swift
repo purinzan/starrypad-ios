@@ -38,6 +38,7 @@ struct ContentView: View {
     /// from one tap fires during a later tap - it only checks that the pad is
     /// held right now, and while you are drumming it always is.
     @State private var pressToken = 0
+    @State private var renaming = false
 
     private let holdSeconds = 0.45
     /// How far a finger may wander and still count as staying put. A finger
@@ -148,9 +149,7 @@ struct ContentView: View {
                 }
             }
             Spacer()
-            readout("Pad", Banks.label(for: rack.selected), accent: false)
             readout("Vel", lastVelocity > 0 ? "\(lastVelocity)" : "—", accent: true)
-            readout("Out", String(format: "%.1f ms", player.outputLatencyMilliseconds), accent: false)
         }
     }
 
@@ -246,7 +245,7 @@ struct ContentView: View {
         case .play:
             transport
         case .mix:
-            MixerView(rack: rack, master: $master,
+            MixerView(rack: rack, master: $master, renaming: $renaming,
                       onTune: { player.invalidate(rack.slots[rack.selected].source) },
                       onAudition: { strike(rack.slots[rack.selected], velocity: 110, record: false) },
                       onMaster: { player.makeupDecibels = Float(master) })
@@ -256,6 +255,7 @@ struct ContentView: View {
                 pending: $pendingSample, draft: $draft, status: $status,
                 onAssign: assignPending,
                 onPreview: { player.play(draft, velocity: 110) },
+                onPreviewSlot: { strike(rack.slots[rack.selected], velocity: 110, record: false) },
                 onPickVideo: { pickingVideo = true },
                 onDiscard: { pendingSample = nil; status = nil }
             )
@@ -386,7 +386,11 @@ struct ContentView: View {
     // MARK: - Wiring
 
     private func begin() {
-        loaded = player.preload(Kit.pads)
+        loaded = player.preload(Kit.all)
+        // Kept even though it is no longer on screen: it is the number that
+        // decides whether this feels like an instrument, and it belongs in the
+        // log when someone says the app feels slow.
+        print(String(format: "output latency %.2f ms", player.outputLatencyMilliseconds))
         player.start()
         looper.onFire = { slotID, velocity in
             guard rack.slots.indices.contains(slotID) else { return }

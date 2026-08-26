@@ -47,9 +47,26 @@ enum Recordings {
         var raw = (UserDefaults.standard.dictionary(forKey: trimsKey) as? [String: [Double]]) ?? [:]
         raw.removeValue(forKey: name)
         UserDefaults.standard.set(raw, forKey: trimsKey)
+        var labels = (UserDefaults.standard.dictionary(forKey: labelsKey) as? [String: String]) ?? [:]
+        labels.removeValue(forKey: name)
+        UserDefaults.standard.set(labels, forKey: labelsKey)
+    }
+
+    /// A name someone gave a recording, which travels with it the way its
+    /// region does.
+    static func label(for name: String) -> String? {
+        let raw = UserDefaults.standard.dictionary(forKey: labelsKey) as? [String: String]
+        return raw?[name]
+    }
+
+    static func setLabel(_ label: String, for name: String) {
+        var raw = (UserDefaults.standard.dictionary(forKey: labelsKey) as? [String: String]) ?? [:]
+        raw[name] = label
+        UserDefaults.standard.set(raw, forKey: labelsKey)
     }
 
     private static let trimsKey = "recordings.trims"
+    private static let labelsKey = "recordings.labels"
 
     static func all() -> [String] {
         let files = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []

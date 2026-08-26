@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Pad layout and kit contents, generated from the desktop app so the two do
-/// not drift. Sounds are the CC0 TR-808 set; see LICENSE-SAMPLES.
+/// not drift. Acoustic sounds are the Salamander Drumkit (CC BY 3.0); the
+/// electronic ones are the CC0 TR-808 set. See LICENSE-SAMPLES.
 struct Pad: Identifiable {
     let id: Int
     let name: String
@@ -9,11 +10,86 @@ struct Pad: Identifiable {
     let file: String
     let hue: Color
     let note: UInt8?
+
+    /// How the desktop balances this sound inside its kit.
+    var gain: Double = 1.0
+    var tune: Int = 0
+    /// Some sounds are a shortened take of a longer one - a clap off a snare,
+    /// a shaker off a hat. nil means play the whole thing.
+    var milliseconds: Int? = nil
 }
 
 enum Kit {
-    /// Pad 0 is bottom left, matching the hardware and the desktop grid.
-    static let pads: [Pad] = [
+    /// Bank A. Pad 0 is bottom left, matching the hardware and the desktop grid.
+    static let acoustic: [Pad] = [
+        Pad(id: 0, name: "Kick", sound: "Kick",
+            file: "ac_kick_OH_FF_6.wav",
+            hue: Color(red: 0.847, green: 0.345, blue: 0.247), note: nil,
+            gain: 1.00, tune: 0, milliseconds: nil),
+        Pad(id: 1, name: "Snare", sound: "Snare",
+            file: "ac_snare_OH_FF_3.wav",
+            hue: Color(red: 0.208, green: 0.435, blue: 0.702), note: nil,
+            gain: 0.98, tune: 0, milliseconds: nil),
+        Pad(id: 2, name: "Closed Hat", sound: "Closed Hat",
+            file: "ac_hihatClosed_OH_F_1.wav",
+            hue: Color(red: 0.180, green: 0.490, blue: 0.357), note: nil,
+            gain: 0.78, tune: 0, milliseconds: 130),
+        Pad(id: 3, name: "Open Hat", sound: "Open Hat",
+            file: "ac_hihatOpen_OH_FF_1.wav",
+            hue: Color(red: 0.110, green: 0.482, blue: 0.569), note: nil,
+            gain: 0.78, tune: 0, milliseconds: nil),
+        Pad(id: 4, name: "Low Tom", sound: "Low Tom",
+            file: "ac_loTom_OH_FF_1.wav",
+            hue: Color(red: 0.467, green: 0.322, blue: 0.639), note: nil,
+            gain: 0.98, tune: -3, milliseconds: nil),
+        Pad(id: 5, name: "Mid Tom", sound: "Mid Tom",
+            file: "ac_hiTom_OH_FF_1.wav",
+            hue: Color(red: 0.816, green: 0.604, blue: 0.141), note: nil,
+            gain: 0.94, tune: 0, milliseconds: nil),
+        Pad(id: 6, name: "High Tom", sound: "High Tom",
+            file: "ac_hiTom_OH_FF_1.wav",
+            hue: Color(red: 0.690, green: 0.424, blue: 0.180), note: nil,
+            gain: 0.92, tune: 3, milliseconds: nil),
+        Pad(id: 7, name: "Floor Tom", sound: "Floor Tom",
+            file: "ac_loTom_OH_FF_1.wav",
+            hue: Color(red: 0.373, green: 0.353, blue: 0.635), note: nil,
+            gain: 1.02, tune: -6, milliseconds: nil),
+        Pad(id: 8, name: "Clap", sound: "Clap",
+            file: "ac_snare2_OH_MP_5.wav",
+            hue: Color(red: 0.608, green: 0.310, blue: 0.247), note: nil,
+            gain: 0.24, tune: 0, milliseconds: 90),
+        Pad(id: 9, name: "Rim", sound: "Rim",
+            file: "ac_snareStick_OH_F_5.wav",
+            hue: Color(red: 0.702, green: 0.227, blue: 0.337), note: nil,
+            gain: 0.72, tune: 0, milliseconds: 85),
+        Pad(id: 10, name: "Cowbell", sound: "Cowbell",
+            file: "ac_cowbell_FF_1.wav",
+            hue: Color(red: 0.502, green: 0.443, blue: 0.165), note: nil,
+            gain: 0.82, tune: 0, milliseconds: nil),
+        Pad(id: 11, name: "Crash", sound: "Crash",
+            file: "ac_crash1_OH_FF_5.wav",
+            hue: Color(red: 0.337, green: 0.439, blue: 0.435), note: nil,
+            gain: 0.82, tune: 0, milliseconds: nil),
+        Pad(id: 12, name: "Ride", sound: "Ride",
+            file: "ac_ride1_OH_FF_2.wav",
+            hue: Color(red: 0.424, green: 0.498, blue: 0.600), note: nil,
+            gain: 0.72, tune: 0, milliseconds: 1500),
+        Pad(id: 13, name: "Tamb", sound: "Tamb",
+            file: "ac_hihatSemiOpen7_OH_F_4.wav",
+            hue: Color(red: 0.753, green: 0.408, blue: 0.541), note: nil,
+            gain: 0.22, tune: 0, milliseconds: 110),
+        Pad(id: 14, name: "Shaker", sound: "Shaker",
+            file: "ac_hihatClosed_OH_F_1.wav",
+            hue: Color(red: 0.298, green: 0.549, blue: 0.455), note: nil,
+            gain: 0.50, tune: 0, milliseconds: 60),
+        Pad(id: 15, name: "Clave", sound: "Clave",
+            file: "ac_snareStick_OH_F_5.wav",
+            hue: Color(red: 0.541, green: 0.384, blue: 0.267), note: nil,
+            gain: 0.52, tune: 0, milliseconds: 55)
+    ]
+
+    /// Bank B: where the sounds that used to be bank A now live.
+    static let electronic: [Pad] = [
         Pad(id: 0, name: "Kick", sound: "808 Kick Long",
             file: "kick8_long.wav",
             hue: Color(red: 0.847, green: 0.345, blue: 0.247), note: 35),
@@ -64,7 +140,13 @@ enum Kit {
             hue: Color(red: 0.588, green: 0.804, blue: 0.839), note: 75),
     ]
 
+    /// What bank A starts as, and what the note table is keyed on.
+    static let pads: [Pad] = acoustic
+
+    /// Everything the sound picker can offer.
+    static let all: [Pad] = acoustic + electronic
+
     static func pad(forNote note: UInt8) -> Pad? {
-        pads.first { $0.note == note }
+        electronic.first { $0.note == note }
     }
 }

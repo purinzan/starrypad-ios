@@ -7,6 +7,8 @@ import SwiftUI
 struct MixerView: View {
     @ObservedObject var rack: Rack
     @Binding var master: Double
+    @Binding var renaming: Bool
+    @FocusState private var nameFocused: Bool
     var onTune: () -> Void
     var onAudition: () -> Void
     var onMaster: () -> Void
@@ -19,12 +21,37 @@ struct MixerView: View {
                 Text(Banks.label(for: rack.selected))
                     .font(.system(size: 15, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Palette.accent)
-                Text(slot.label).font(.system(size: 15)).foregroundStyle(Palette.ink)
-                    .lineLimit(1)
+                if renaming {
+                    TextField("Name", text: Binding(
+                        get: { rack.slots[rack.selected].label },
+                        set: { rack.rename(rack.selected, to: $0) }
+                    ))
+                    .font(.system(size: 15))
+                    .foregroundStyle(Palette.ink)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($nameFocused)
+                    .submitLabel(.done)
+                    .onSubmit { renaming = false }
+                    .onAppear { nameFocused = true }
+                } else {
+                    Text(slot.label).font(.system(size: 15)).foregroundStyle(Palette.ink)
+                        .lineLimit(1)
+                }
                 Spacer()
+                Button {
+                    renaming.toggle()
+                } label: {
+                    Image(systemName: renaming ? "checkmark" : "pencil")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(renaming ? Palette.accent : Palette.ink2)
+                        .frame(width: 30, height: 30)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
                 Button("Hear", action: onAudition)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Palette.ink)
+                    .buttonStyle(.plain)
             }
 
             knobRow("MASTER", value: String(format: "%+.0f dB", master)) {
