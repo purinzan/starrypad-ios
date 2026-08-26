@@ -13,7 +13,13 @@ final class SamplePlayer {
     /// A gain stage the voices run through. AVAudioPlayerNode.volume and the
     /// main mixer both stop at 1.0, so making the app louder than "every voice
     /// flat out" needs somewhere that deals in decibels.
-    private let makeup = AVAudioUnitEQ(numberOfBands: 0)
+    /// Output gain in decibels, applied to the audio rather than to a node.
+    ///
+    /// Two attempts at an AVAudioUnitEQ in the chain gave a graph that either
+    /// would not connect or would not accept the format, and an effect unit is
+    /// a lot of machinery for one multiply. The desktop scales sample data for
+    /// the same reason.
+    private var makeup: Float = SamplePlayer.defaultMakeupDecibels
     private var voices: [AVAudioPlayerNode] = []
     private var buffers: [String: AVAudioPCMBuffer] = [:]
     /// Trimmed and tuned versions, keyed by what made them. Deriving a buffer
@@ -26,13 +32,10 @@ final class SamplePlayer {
     init(voiceCount: Int = 24) {
         format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
         configureSession(recording: false)
-        engine.attach(makeup)
-        makeup.globalGain = Self.defaultMakeupDecibels
-        engine.connect(makeup, to: engine.mainMixerNode, format: format)
         for _ in 0..<voiceCount {
             let node = AVAudioPlayerNode()
             engine.attach(node)
-            engine.connect(node, to: makeup, format: format)
+            engine.connect(node, to: engine.mainMixerNode, format: format)
             voices.append(node)
         }
     }
@@ -50,27 +53,48 @@ final class SamplePlayer {
         let session = AVAudioSession.sharedInstance()
         do {
             if recording {
-                try session.setCategory(.playAndRecord, mode: .default,
-                                        options: [.defaultToSpeaker, .allowBluetoothA2DP])
+                try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
             } else {
-                try session.setCategory(.playback, mode: .default, options: [.allowBluetoothA2DP])
+                try session.setCategory(.playback, mode: .default)
             }
-            try session.setPreferredIOBufferDuration(0.003)
-            try session.setPreferredSampleRate(48000)
+        } catch {
+            print("audio session category: \(error)")
+        }
+        // Preferences, not requirements. A device that will not hand over a
+        // 3 ms buffer should still make sound; failing the whole setup over it
+        // is how the session ends up inactive and the graph disconnected.
+        try? session.setPreferredIOBufferDuration(0.003)
+        try? session.setPreferredSampleRate(48000)
+        do {
             try session.setActive(true)
         } catch {
-            print("audio session: \(error)")
+            print("audio session activate: \(error)")
         }
     }
 
     /// Open the input route for the duration of a recording, then give it back.
-    func beginRecordingRoute() { configureSession(recording: true) }
-    func endRecordingRoute() { configureSession(recording: false) }
+    ///
+    /// A category change can tear the engine down, so it is rebuilt after each
+    /// one rather than assumed to have survived.
+    func beginRecordingRoute() { restart(recording: true) }
+    func endRecordingRoute() { restart(recording: false) }
+
+    private func restart(recording: Bool) {
+        engine.stop()
+        configureSession(recording: recording)
+        start()
+    }
 
     /// Extra output gain in decibels, 0 to +12.
     var makeupDecibels: Float {
-        get { makeup.globalGain }
-        set { makeup.globalGain = max(0, min(12, newValue)) }
+        get { makeup }
+        set {
+            let wanted = max(0, min(12, newValue))
+            guard wanted != makeup else { return }
+            makeup = wanted
+            // Gain is baked into the derived buffers, so they are now stale.
+            derived.removeAll()
+        }
     }
 
     /// Decode every kit sample up front. Returns how many loaded.
@@ -101,12 +125,21 @@ final class SamplePlayer {
 
     func start() {
         guard !engine.isRunning else { return }
+        for voice in voices {
+            engine.connect(voice, to: engine.mainMixerNode, format: format)
+        }
         engine.prepare()
         do {
             try engine.start()
-            voices.forEach { $0.play() }
         } catch {
             print("engine: \(error)")
+            return
+        }
+        // Only start voices the engine actually owns: starting a node on a
+        // graph that failed to wire up throws, and an uncaught throw here
+        // takes the app down on launch.
+        for voice in voices {
+            voice.play()
         }
     }
 
@@ -158,8 +191,8 @@ final class SamplePlayer {
 
     private func resolved(_ slot: PadSlot) -> AVAudioPCMBuffer? {
         guard let original = buffers[slot.source.key] else { return nil }
-        guard slot.isTrimmed || slot.tune != 0 else { return original }
-        let key = "\(slot.source.key)|\(slot.start)|\(slot.end)|\(slot.tune)"
+        guard slot.isTrimmed || slot.tune != 0 || makeup > 0.01 else { return original }
+        let key = "\(slot.source.key)|\(slot.start)|\(slot.end)|\(slot.tune)|\(makeup)"
         if let cached = derived[key] { return cached }
         var working = original
         if slot.isTrimmed, let cut = Self.trim(working, from: slot.start, to: slot.end) {
@@ -167,6 +200,9 @@ final class SamplePlayer {
         }
         if slot.tune != 0, let tuned = Self.retune(working, semitones: slot.tune) {
             working = tuned
+        }
+        if makeup > 0.01, let louder = Self.amplify(working, decibels: makeup) {
+            working = louder
         }
         derived[key] = working
         return working
@@ -186,6 +222,28 @@ final class SamplePlayer {
             target[channel].update(from: source[channel] + first, count: length)
         }
         out.frameLength = AVAudioFrameCount(length)
+        return out
+    }
+
+    /// Multiply, then saturate rather than clip.
+    ///
+    /// tanh is close to a straight line until the signal approaches full scale
+    /// and rounds off after that, so quiet material is untouched and a hard hit
+    /// squashes instead of tearing. Hard clipping at +6 dB on a drum sounds
+    /// like a fault; this sounds like a loud drum.
+    private static func amplify(_ buffer: AVAudioPCMBuffer, decibels: Float) -> AVAudioPCMBuffer? {
+        let gain = pow(10, decibels / 20)
+        guard let out = AVAudioPCMBuffer(pcmFormat: buffer.format,
+                                         frameCapacity: buffer.frameLength),
+              let source = buffer.floatChannelData, let target = out.floatChannelData
+        else { return nil }
+        let frames = Int(buffer.frameLength)
+        for channel in 0..<Int(buffer.format.channelCount) {
+            for frame in 0..<frames {
+                target[channel][frame] = tanh(source[channel][frame] * gain)
+            }
+        }
+        out.frameLength = buffer.frameLength
         return out
     }
 
