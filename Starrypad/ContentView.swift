@@ -20,6 +20,7 @@ struct ContentView: View {
     @State private var status: String?
     @State private var pickingVideo = false
     @State private var master = Double(SamplePlayer.defaultMakeupDecibels)
+    @State private var learning = false
 
     private enum Screen: String, CaseIterable { case play = "Pads", mix = "Mixer", sample = "Sampler" }
 
@@ -33,6 +34,7 @@ struct ContentView: View {
         VStack(spacing: 10) {
             header
             bankRow
+            if learning { learnBanner }
             VStack(spacing: 8) {
                 ForEach(rows.indices, id: \.self) { row in
                     HStack(spacing: 8) {
@@ -116,8 +118,45 @@ struct ContentView: View {
                 }
             }
             Spacer()
-            Text("\(loaded) sounds").font(.system(size: 11)).foregroundStyle(Palette.ink3)
+            Button {
+                if learning {
+                    notes.cancelLearning()
+                    learning = false
+                    status = nil
+                } else {
+                    notes.beginLearning()
+                    learning = true
+                }
+            } label: {
+                Text(learning ? "Cancel" : "Learn pads")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(learning ? Palette.onAccent : Palette.ink2)
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 6)
+                        .fill(learning ? Palette.danger : Palette.panel))
+                    .overlay(RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(learning ? Palette.danger : Palette.rule, lineWidth: 1))
+            }
         }
+    }
+
+    /// While learning, the grid asks for one pad at a time and the rest go
+    /// quiet, so there is never a question about which one it means.
+    private var learnBanner: some View {
+        HStack(spacing: 8) {
+            Circle().fill(Palette.danger).frame(width: 8, height: 8)
+            Text("Hit the pad shown in orange on your controller")
+                .font(.system(size: 12)).foregroundStyle(Palette.ink)
+            Spacer()
+            if let position = notes.learningPosition {
+                Text("\(position + 1) / \(Banks.padCount)")
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(Palette.ink2)
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .background(RoundedRectangle(cornerRadius: 7).fill(Palette.panel))
+        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Palette.danger, lineWidth: 1))
     }
 
     private var screenPicker: some View {
@@ -198,7 +237,8 @@ struct ContentView: View {
 
     private func padView(_ slot: PadSlot) -> some View {
         let energy = lit[slot.id] ?? 0
-        let isSelected = rack.selected == slot.id
+        let wanted = learning && notes.learningPosition == slot.positionInBank
+        let isSelected = wanted || rack.selected == slot.id
         let sounding = energy > 0
         let silent = slot.muted || (!rack.soloed.isEmpty && !rack.soloed.contains(slot.id))
         return GeometryReader { geometry in
@@ -224,7 +264,7 @@ struct ContentView: View {
                 .padding(.horizontal, 6)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .opacity(silent ? 0.45 : 1)
+            .opacity(learning && !wanted ? 0.25 : silent ? 0.45 : 1)
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
                     .strokeBorder(sounding || isSelected ? Palette.accent : Palette.rule,
@@ -257,11 +297,15 @@ struct ContentView: View {
         }
         midi.onNote = { note, velocity in
             // Never drop a hit: NoteMap always answers with a pad.
-            let position = notes.pad(for: note)
+            let position = notes.position(for: note)
             let slotID = rack.bank * Banks.padCount + position
             lastNote = note
             rack.selected = slotID
             strike(rack.slots[slotID], velocity: Int(velocity))
+            if notes.learningPosition == nil, learning {
+                learning = false
+                status = "Layout learned"
+            }
         }
         midi.start()
     }
