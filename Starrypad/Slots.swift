@@ -135,23 +135,30 @@ final class Rack: ObservableObject {
     func setSound(_ source: SoundSource, label: String, on id: Int) {
         slots[id].source = source
         slots[id].label = label
-        slots[id].start = 0
-        slots[id].end = 1
-        if case .user = source {
+        switch source {
+        case .user(let name):
             slots[id].hue = Palette.signal
-        } else if case .builtIn(let file) = source,
-                  let pad = Kit.pads.first(where: { $0.file == file }) {
-            slots[id].hue = pad.hue
+            // The trim came with the sample, so it comes back with it.
+            let region = Recordings.trim(for: name)
+            slots[id].start = region.start
+            slots[id].end = region.end
+        case .builtIn(let file):
+            slots[id].start = 0
+            slots[id].end = 1
+            if let pad = Kit.pads.first(where: { $0.file == file }) {
+                slots[id].hue = pad.hue
+            }
         }
     }
 
-    /// Put a freshly made recording on a slot.
-    func assign(_ name: String, label: String, to id: Int) {
+    /// Put a freshly made recording on a slot, with the region just chosen.
+    func assign(_ name: String, label: String, start: Double, end: Double, to id: Int) {
+        Recordings.setTrim(start: start, end: end, for: name)
         slots[id].source = .user(name: name)
         slots[id].label = label
         slots[id].hue = Palette.signal
-        slots[id].start = 0
-        slots[id].end = 1
+        slots[id].start = start
+        slots[id].end = end
         slots[id].tune = 0
     }
 }

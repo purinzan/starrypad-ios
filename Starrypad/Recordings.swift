@@ -23,6 +23,34 @@ enum Recordings {
         return "\(prefix)-\(stamp).wav"
     }
 
+    /// The region of a recording that plays.
+    ///
+    /// It belongs to the recording, not to the pad. Trimming a sample and then
+    /// putting it on another pad - or the same pad again from the picker -
+    /// should not throw the trim away; the part you chose is part of what the
+    /// sample now is.
+    static func trim(for name: String) -> (start: Double, end: Double) {
+        guard let raw = UserDefaults.standard.dictionary(forKey: trimsKey) as? [String: [Double]],
+              let pair = raw[name], pair.count == 2,
+              pair[0] >= 0, pair[1] <= 1, pair[1] > pair[0]
+        else { return (0, 1) }
+        return (pair[0], pair[1])
+    }
+
+    static func setTrim(start: Double, end: Double, for name: String) {
+        var raw = (UserDefaults.standard.dictionary(forKey: trimsKey) as? [String: [Double]]) ?? [:]
+        raw[name] = [start, end]
+        UserDefaults.standard.set(raw, forKey: trimsKey)
+    }
+
+    static func forget(_ name: String) {
+        var raw = (UserDefaults.standard.dictionary(forKey: trimsKey) as? [String: [Double]]) ?? [:]
+        raw.removeValue(forKey: name)
+        UserDefaults.standard.set(raw, forKey: trimsKey)
+    }
+
+    private static let trimsKey = "recordings.trims"
+
     static func all() -> [String] {
         let files = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
         return files.filter { $0.hasSuffix(".wav") }.sorted()

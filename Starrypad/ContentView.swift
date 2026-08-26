@@ -102,6 +102,7 @@ struct ContentView: View {
             },
             onDelete: { name in
                 try? FileManager.default.removeItem(at: Recordings.url(for: name))
+                Recordings.forget(name)
                 recordings = Recordings.all()
             }
         )
@@ -442,9 +443,8 @@ struct ContentView: View {
     private func assignPending() {
         guard let name = pendingSample else { return }
         let target = rack.selected
-        rack.assign(name, label: draft.label, to: target)
-        rack.slots[target].start = draft.start
-        rack.slots[target].end = draft.end
+        rack.assign(name, label: draft.label,
+                    start: draft.start, end: draft.end, to: target)
         pendingSample = nil
         status = "\(draft.label) is on \(Banks.label(for: target))"
         screen = .play
