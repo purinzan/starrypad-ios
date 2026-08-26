@@ -24,6 +24,15 @@ struct ContentView: View {
     /// Pads with a finger currently down, so a drag fires once and not
     /// every time the touch moves a pixel.
     @State private var touching: Set<Int> = []
+    /// Holding a pad. Lift without moving and the sound picker opens; drag to
+    /// another pad and the two swap. One gesture, decided by what you do next.
+    @State private var held: Int?
+    @State private var swapTarget: Int?
+    @State private var gridSize: CGSize = .zero
+    @State private var picking: Int?
+    @State private var recordings: [String] = []
+
+    private let holdSeconds = 0.45
 
     private enum Screen: String, CaseIterable { case play = "Pads", mix = "Mixer", sample = "Sampler" }
 
@@ -38,15 +47,7 @@ struct ContentView: View {
             header
             bankRow
             if learning { learnBanner }
-            VStack(spacing: 8) {
-                ForEach(rows.indices, id: \.self) { row in
-                    HStack(spacing: 8) {
-                        ForEach(rows[row]) { slot in padView(slot) }
-                    }
-                    .frame(maxHeight: .infinity)
-                }
-            }
-            .frame(maxHeight: .infinity)
+            padGrid
 
             LoopBar(looper: looper)
             screenPicker
@@ -57,16 +58,56 @@ struct ContentView: View {
         .background(Palette.ground)
         .preferredColorScheme(.dark)
         .onAppear(perform: begin)
-        .sheet(isPresented: $pickingVideo) {
-            VideoPicker(
-                onPick: { url in
-                    pickingVideo = false
-                    Task { await importVideo(url) }
-                },
-                onCancel: { pickingVideo = false }
-            )
-            .ignoresSafeArea()
+        .sheet(item: pickingBinding) { target in soundPicker(for: target.id) }
+        .sheet(isPresented: $pickingVideo) { videoPicker }
+    }
+
+    private var padGrid: some View {
+        GeometryReader { grid in
+            VStack(spacing: 8) {
+                ForEach(rows.indices, id: \.self) { row in
+                    HStack(spacing: 8) {
+                        ForEach(rows[row]) { slot in padView(slot) }
+                    }
+                    .frame(maxHeight: .infinity)
+                }
+            }
+            .onAppear { gridSize = grid.size }
+            .onChange(of: grid.size) { _, size in gridSize = size }
         }
+        .coordinateSpace(name: "grid")
+        .frame(maxHeight: .infinity)
+    }
+
+    private var pickingBinding: Binding<PadTarget?> {
+        Binding(get: { picking.map { PadTarget(id: $0) } }, set: { picking = $0?.id })
+    }
+
+    private func soundPicker(for target: Int) -> some View {
+        SoundPicker(
+            target: target,
+            recordings: recordings,
+            onPick: { source, label in
+                if case .user(let name) = source { _ = player.load(userSample: name) }
+                rack.setSound(source, label: label, on: target)
+                status = "\(label) is on \(Banks.label(for: target))"
+            },
+            onDelete: { name in
+                try? FileManager.default.removeItem(at: Recordings.url(for: name))
+                recordings = Recordings.all()
+            }
+        )
+    }
+
+    private var videoPicker: some View {
+        VideoPicker(
+            onPick: { url in
+                pickingVideo = false
+                Task { await importVideo(url) }
+            },
+            onCancel: { pickingVideo = false }
+        )
+        .ignoresSafeArea()
     }
 
     // MARK: - Chrome
@@ -241,6 +282,8 @@ struct ContentView: View {
     private func padView(_ slot: PadSlot) -> some View {
         let energy = lit[slot.id] ?? 0
         let wanted = learning && notes.learningPosition == slot.positionInBank
+        let isHeld = held == slot.id
+        let isSwapTarget = held != nil && swapTarget == slot.id && held != slot.id
         let isSelected = wanted || rack.selected == slot.id
         let sounding = energy > 0
         let silent = slot.muted || (!rack.soloed.isEmpty && !rack.soloed.contains(slot.id))
@@ -270,26 +313,42 @@ struct ContentView: View {
             .opacity(learning && !wanted ? 0.25 : silent ? 0.45 : 1)
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(sounding || isSelected ? Palette.accent : Palette.rule,
-                                  lineWidth: sounding || isSelected ? 2 : 1)
+                    .strokeBorder(
+                        isSwapTarget ? Palette.signal
+                        : isHeld ? Palette.danger
+                        : sounding || isSelected ? Palette.accent : Palette.rule,
+                        lineWidth: isHeld || isSwapTarget || sounding || isSelected ? 2 : 1)
             )
+            .scaleEffect(isHeld ? 0.94 : 1)
+            .animation(.easeOut(duration: 0.12), value: isHeld)
             .shadow(color: Palette.accent.opacity(energy * 0.55), radius: 4 + 12 * energy)
             .contentShape(Rectangle())
             .gesture(
-                DragGesture(minimumDistance: 0)
+                DragGesture(minimumDistance: 0, coordinateSpace: .named("grid"))
                     // onChanged, not onEnded: the first event of a drag is the
                     // touch landing, and a drum that sounds when you lift your
                     // finger is not a drum.
                     .onChanged { touch in
-                        guard !touching.contains(slot.id) else { return }
-                        touching.insert(slot.id)
-                        // Touch carries no velocity, so the pad does: the
-                        // higher up you hit it, the harder it lands.
-                        let depth = 1.0 - min(max(touch.location.y / geometry.size.height, 0), 1)
-                        rack.selected = slot.id
-                        strike(slot, velocity: 24 + Int(depth * 103))
+                        if !touching.contains(slot.id) {
+                            touching.insert(slot.id)
+                            // Touch carries no velocity, so the pad does: the
+                            // higher up you hit it, the harder it lands.
+                            let local = touch.location.y - geometry.frame(in: .named("grid")).minY
+                            let depth = 1.0 - min(max(local / geometry.size.height, 0), 1)
+                            rack.selected = slot.id
+                            strike(slot, velocity: 24 + Int(depth * 103))
+                            beginHoldTimer(for: slot.id)
+                        }
+                        if held == slot.id {
+                            swapTarget = position(at: touch.location).map {
+                                rack.bank * Banks.padCount + $0
+                            }
+                        }
                     }
-                    .onEnded { _ in touching.remove(slot.id) }
+                    .onEnded { _ in
+                        touching.remove(slot.id)
+                        finishHold(from: slot.id)
+                    }
             )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -317,6 +376,43 @@ struct ContentView: View {
             }
         }
         midi.start()
+    }
+
+    /// A held pad that has not moved yet opens the picker; one dragged onto
+    /// another swaps the two.
+    private func beginHoldTimer(for id: Int) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + holdSeconds) {
+            guard touching.contains(id), held == nil else { return }
+            held = id
+            swapTarget = id
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+        }
+    }
+
+    private func finishHold(from id: Int) {
+        defer { held = nil; swapTarget = nil }
+        guard held == id else { return }
+        if let target = swapTarget, target != id {
+            rack.swap(id, target)
+            looper.swapPads(id, target)
+            player.invalidate(rack.slots[id].source)
+            player.invalidate(rack.slots[target].source)
+            status = "\(Banks.label(for: id)) and \(Banks.label(for: target)) swapped"
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        } else {
+            recordings = Recordings.all()
+            picking = id
+        }
+    }
+
+    /// Which position in the grid a point in the grid's own space falls on.
+    private func position(at point: CGPoint) -> Int? {
+        guard gridSize.width > 0, gridSize.height > 0 else { return nil }
+        let column = Int(point.x / (gridSize.width / 4))
+        let row = Int(point.y / (gridSize.height / 4))
+        guard (0..<4).contains(column), (0..<4).contains(row) else { return nil }
+        // Row 0 is the top of the screen, which is the last row of positions.
+        return (3 - row) * 4 + column
     }
 
     private func strike(_ slot: PadSlot, velocity: Int, record: Bool = true) {
@@ -364,3 +460,6 @@ struct ContentView: View {
         try? FileManager.default.removeItem(at: url)
     }
 }
+
+/// sheet(item:) needs something Identifiable, and a pad is just a number.
+struct PadTarget: Identifiable { let id: Int }

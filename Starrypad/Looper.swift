@@ -106,6 +106,21 @@ final class Looper: ObservableObject {
         events.append(Event(beat: position, padID: padID, velocity: velocity))
     }
 
+    /// Move recorded hits with the pads they were played on.
+    ///
+    /// Rearranging the grid should not rewrite the take: if you swap two pads
+    /// because they are in the wrong place, what you already played has to
+    /// follow the sound, not stay behind on the position.
+    func swapPads(_ first: Int, _ second: Int) {
+        guard first != second else { return }
+        events = events.map { event in
+            var moved = event
+            if event.padID == first { moved.padID = second }
+            else if event.padID == second { moved.padID = first }
+            return moved
+        }
+    }
+
     // MARK: - Scheduling
 
     private func begin() {

@@ -22,7 +22,7 @@ enum SoundSource: Equatable {
 
 /// One of the 64 slots: what it plays and how it sits in the mix.
 struct PadSlot: Identifiable {
-    let id: Int                      // 0..63
+    var id: Int                      // 0..63
     var source: SoundSource
     var label: String
     var hue: Color
@@ -106,6 +106,43 @@ final class Rack: ObservableObject {
 
     func toggleSolo(_ id: Int) {
         if soloed.contains(id) { soloed.remove(id) } else { soloed.insert(id) }
+    }
+
+    /// Swap two pads outright: the sound and everything set about it move
+    /// together, because a pad is what you hear, not where it sits.
+    func swap(_ first: Int, _ second: Int) {
+        guard first != second,
+              slots.indices.contains(first), slots.indices.contains(second) else { return }
+        let a = slots[first], b = slots[second]
+        slots[first] = moved(b, to: a.id)
+        slots[second] = moved(a, to: b.id)
+        // Solo follows the sound, or soloing a pad then moving it would leave
+        // the wrong one lit.
+        let firstSoloed = soloed.contains(first), secondSoloed = soloed.contains(second)
+        soloed.remove(first); soloed.remove(second)
+        if firstSoloed { soloed.insert(second) }
+        if secondSoloed { soloed.insert(first) }
+    }
+
+    /// Everything except the id, which belongs to the position, not the sound.
+    private func moved(_ slot: PadSlot, to id: Int) -> PadSlot {
+        var out = slot
+        out.id = id
+        return out
+    }
+
+    /// Put a chosen sound on a slot, leaving its mix alone.
+    func setSound(_ source: SoundSource, label: String, on id: Int) {
+        slots[id].source = source
+        slots[id].label = label
+        slots[id].start = 0
+        slots[id].end = 1
+        if case .user = source {
+            slots[id].hue = Palette.signal
+        } else if case .builtIn(let file) = source,
+                  let pad = Kit.pads.first(where: { $0.file == file }) {
+            slots[id].hue = pad.hue
+        }
     }
 
     /// Put a freshly made recording on a slot.
