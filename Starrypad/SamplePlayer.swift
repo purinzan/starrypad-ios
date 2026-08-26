@@ -42,6 +42,57 @@ final class SamplePlayer {
             engine.connect(node, to: engine.mainMixerNode, format: format)
             voices.append(node)
         }
+        observeInterruptions()
+    }
+
+    /// Come back from the things that take the audio away.
+    ///
+    /// The background audio mode and a playback session are what let this keep
+    /// sounding behind another app, but neither survives a phone call on its
+    /// own: an interruption stops the engine, and without this nothing ever
+    /// starts it again, so the app is silent from then on - including once it
+    /// is back in front. Media services resetting is rarer and worse, since the
+    /// session itself has to be rebuilt.
+    private func observeInterruptions() {
+        let centre = NotificationCenter.default
+        let session = AVAudioSession.sharedInstance()
+
+        centre.addObserver(forName: AVAudioSession.interruptionNotification,
+                           object: session, queue: .main) { [weak self] note in
+            guard let self,
+                  let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
+            switch type {
+            case .began:
+                self.engine.pause()
+            case .ended:
+                let options = (note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt)
+                    .map(AVAudioSession.InterruptionOptions.init(rawValue:)) ?? []
+                // iOS says whether it expects us back; asking anyway is how you
+                // end up fighting whatever interrupted you.
+                guard options.contains(.shouldResume) else { return }
+                self.configureSession(recording: false)
+                self.engine.stop()
+                self.start()
+            @unknown default:
+                break
+            }
+        }
+
+        centre.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification,
+                           object: session, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            self.engine.stop()
+            self.configureSession(recording: false)
+            self.start()
+        }
+
+        centre.addObserver(forName: AVAudioSession.routeChangeNotification,
+                           object: session, queue: .main) { [weak self] _ in
+            // Headphones in or out rebuilds the output chain underneath us.
+            guard let self, !self.engine.isRunning else { return }
+            self.start()
+        }
     }
 
     /// How much louder than unity the pads run by default.
