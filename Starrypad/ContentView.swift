@@ -39,6 +39,8 @@ struct ContentView: View {
     /// held right now, and while you are drumming it always is.
     @State private var pressToken = 0
     @State private var renaming = false
+    @StateObject private var force = StrikeForce()
+    @AppStorage("velocityFromForce") private var velocityFromForce = true
 
     private let holdSeconds = 0.45
     /// How far a finger may wander and still count as staying put. A finger
@@ -246,6 +248,7 @@ struct ContentView: View {
             transport
         case .mix:
             MixerView(rack: rack, master: $master, renaming: $renaming,
+                      velocityFromForce: $velocityFromForce, force: force,
                       onTune: { player.invalidate(rack.slots[rack.selected].source) },
                       onAudition: { strike(rack.slots[rack.selected], velocity: 110, record: false) },
                       onMaster: { player.makeupDecibels = Float(master) })
@@ -356,10 +359,16 @@ struct ContentView: View {
                             pressToken &+= 1
                             // Touch carries no velocity, so the pad does: the
                             // higher up you hit it, the harder it lands.
+                            // How hard you hit if the phone can tell, and
+                            // otherwise how high up the pad you hit - which is
+                            // all a screen can offer on its own.
                             let local = touch.location.y - geometry.frame(in: .named("grid")).minY
                             let depth = 1.0 - min(max(local / geometry.size.height, 0), 1)
+                            let byPosition = 24 + Int(depth * 103)
+                            let velocity = velocityFromForce
+                                ? (force.velocity() ?? byPosition) : byPosition
                             rack.selected = slot.id
-                            strike(slot, velocity: 24 + Int(depth * 103))
+                            strike(slot, velocity: velocity)
                             beginHoldTimer(for: slot.id, token: pressToken)
                         }
                         if let origin = pressOrigin,
@@ -409,6 +418,7 @@ struct ContentView: View {
             }
         }
         midi.start()
+        force.start()
     }
 
     /// A held pad that has not moved yet opens the picker; one dragged onto

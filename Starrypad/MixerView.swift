@@ -8,6 +8,8 @@ struct MixerView: View {
     @ObservedObject var rack: Rack
     @Binding var master: Double
     @Binding var renaming: Bool
+    @Binding var velocityFromForce: Bool
+    @ObservedObject var force: StrikeForce
     @FocusState private var nameFocused: Bool
     var onTune: () -> Void
     var onAudition: () -> Void
@@ -101,6 +103,28 @@ struct MixerView: View {
                     rack.slots[rack.selected].tune = 0
                     onTune()
                 }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("TOUCH").font(.system(size: 10, weight: .semibold)).kerning(1.4)
+                        .foregroundStyle(Palette.ink3)
+                    Spacer()
+                    Text(force.available ? String(format: "%.2f g", force.lastPeak) : "no sensor")
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(Palette.ink3)
+                }
+                Picker("", selection: $velocityFromForce) {
+                    Text("How hard").tag(true)
+                    Text("Where you hit").tag(false)
+                }
+                .pickerStyle(.segmented)
+                .disabled(!force.available)
+                Text(force.available
+                     ? "Hard hits read the knock the phone takes. A pad that will not reach full needs a firmer strike, or the phone in your hand rather than flat on a table."
+                     : "This device reports no motion, so velocity comes from where on the pad you hit.")
+                    .font(.system(size: 11)).foregroundStyle(Palette.ink3)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             if !rack.soloed.isEmpty {
