@@ -110,9 +110,12 @@ struct MixerView: View {
                     Text("TOUCH").font(.system(size: 10, weight: .semibold)).kerning(1.4)
                         .foregroundStyle(Palette.ink3)
                     Spacer()
-                    Text(force.available ? String(format: "%.2f g", force.lastPeak) : "no sensor")
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(Palette.ink3)
+                    Text(force.available
+                         ? String(format: "%.3f g -> %d  (top %.2f)",
+                                  force.lastPeak, force.lastVelocity, force.ceiling)
+                         : "no sensor")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(force.lastVelocity > 0 ? Palette.signal : Palette.ink3)
                 }
                 Picker("", selection: $velocityFromForce) {
                     Text("How hard").tag(true)
@@ -121,7 +124,7 @@ struct MixerView: View {
                 .pickerStyle(.segmented)
                 .disabled(!force.available)
                 Text(force.available
-                     ? "Hard hits read the knock the phone takes. A pad that will not reach full needs a firmer strike, or the phone in your hand rather than flat on a table."
+                     ? "The scale learns itself: the hardest hit so far is full velocity, and it settles back down as you play softer."
                      : "This device reports no motion, so velocity comes from where on the pad you hit.")
                     .font(.system(size: 11)).foregroundStyle(Palette.ink3)
                     .fixedSize(horizontal: false, vertical: true)

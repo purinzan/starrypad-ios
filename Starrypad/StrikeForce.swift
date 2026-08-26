@@ -5,54 +5,79 @@ import Foundation
 ///
 /// The obvious route is touch pressure, and it is not available: 3D Touch was
 /// dropped from the iPhone years ago, so UITouch.force reads zero on anything
-/// current. What a strike does leave is a jolt in the accelerometer, and that
-/// is a real measurement of force rather than a stand-in for it.
+/// current. What a strike does leave is a jolt the accelerometer can see.
 ///
-/// The jolt lands at the same instant as the touch, so the reading has to come
-/// from a buffer of what just happened rather than from waiting to see what
-/// happens next - waiting would put the delay back that touch-down removed.
+/// The jolt lands at the same instant as the touch, so the reading comes from a
+/// buffer of what just happened rather than from waiting to see what happens
+/// next - waiting would put back the delay that firing on touch-down removed.
+///
+/// The scale is learned rather than assumed. A finger on glass is a far smaller
+/// event than the fixed range in the first version of this file expected, and
+/// how small depends on the phone, the case, and whether it is in your hand or
+/// flat on a table. Guessing that range once, wrongly, is what made every hit
+/// fall through to the old position based velocity.
 final class StrikeForce: ObservableObject {
 
-    /// Whether motion is there to read. False in the simulator, and on a
-    /// device that refuses the sensor.
     @Published private(set) var available = false
-    /// The last reading, so the calibration can be watched while playing.
+    /// The last reading and what it became, so the scale can be watched while
+    /// playing instead of taken on trust.
     @Published private(set) var lastPeak: Double = 0
+    @Published private(set) var lastVelocity: Int = 0
+    /// The loudest hit seen lately, which is what full velocity is measured
+    /// against.
+    @Published private(set) var ceiling: Double = 0.12
 
     private let motion = CMMotionManager()
     private var samples: [(time: TimeInterval, magnitude: Double)] = []
     private let lock = NSLock()
 
-    /// Nothing below this is a hit; the phone is never perfectly still.
-    var floor: Double = 0.06
-    /// Where the scale tops out. A firm strike, not the hardest possible one,
-    /// so normal playing reaches full velocity without needing violence.
-    var ceiling: Double = 1.4
+    /// Sensor noise, not a hit. Measured on the device: the softest real hit
+    /// read 0.0097 g, so this sits just under it.
+    private let floor = 0.008
+    private let ceilingFloor = 0.05
+    private let ceilingLimit = 3.0
+    /// The ceiling comes down as you play softer, so one heavy hit does not
+    /// leave everything after it quiet.
+    private let decay = 0.99
 
     func start() {
-        guard motion.isAccelerometerAvailable else { return }
-        motion.accelerometerUpdateInterval = 1.0 / 100
-        motion.startAccelerometerUpdates(to: .main) { [weak self] data, _ in
-            guard let self, let data else { return }
-            // Gravity is a constant offset on one axis; what a strike adds is
-            // the departure from 1g in any direction.
-            let raw = data.acceleration
-            let magnitude = abs(sqrt(raw.x * raw.x + raw.y * raw.y + raw.z * raw.z) - 1.0)
-            self.lock.lock()
-            self.samples.append((data.timestamp, magnitude))
-            if self.samples.count > 64 { self.samples.removeFirst(self.samples.count - 64) }
-            self.lock.unlock()
+        guard !available else { return }
+        if motion.isDeviceMotionAvailable {
+            motion.deviceMotionUpdateInterval = 1.0 / 100
+            motion.startDeviceMotionUpdates(to: .main) { [weak self] data, _ in
+                guard let self, let data else { return }
+                // userAcceleration already has gravity taken out, which raw
+                // accelerometer readings do not.
+                let a = data.userAcceleration
+                self.record(data.timestamp, sqrt(a.x * a.x + a.y * a.y + a.z * a.z))
+            }
+            available = true
+        } else if motion.isAccelerometerAvailable {
+            motion.accelerometerUpdateInterval = 1.0 / 100
+            motion.startAccelerometerUpdates(to: .main) { [weak self] data, _ in
+                guard let self, let data else { return }
+                let a = data.acceleration
+                self.record(data.timestamp, abs(sqrt(a.x * a.x + a.y * a.y + a.z * a.z) - 1.0))
+            }
+            available = true
         }
-        available = true
+        print("strike force: \(available ? "on" : "no motion sensor")")
     }
 
     func stop() {
+        motion.stopDeviceMotionUpdates()
         motion.stopAccelerometerUpdates()
         available = false
     }
 
-    /// The strongest jolt in the last moments, which is the one you just made.
-    func peak(within seconds: TimeInterval = 0.07) -> Double {
+    private func record(_ time: TimeInterval, _ magnitude: Double) {
+        lock.lock()
+        samples.append((time, magnitude))
+        if samples.count > 64 { samples.removeFirst(samples.count - 64) }
+        lock.unlock()
+    }
+
+    private func peak(within seconds: TimeInterval = 0.07) -> Double {
         lock.lock()
         defer { lock.unlock() }
         guard let newest = samples.last?.time else { return 0 }
@@ -65,13 +90,34 @@ final class StrikeForce: ObservableObject {
     func velocity() -> Int? {
         guard available else { return nil }
         let measured = peak()
-        DispatchQueue.main.async { self.lastPeak = measured }
-        guard measured > floor else { return nil }
-        let span = max(0.0001, ceiling - floor)
-        let scaled = min(1.0, (measured - floor) / span)
-        // The curve is deliberate: linear force feels top heavy, because the
-        // difference between a tap and a firm hit matters more than the
-        // difference between firm and very firm.
-        return max(1, min(127, Int(24 + pow(scaled, 0.7) * 103)))
+
+        // Learn the range from what is actually being played. A hit louder than
+        // anything so far becomes the new top; otherwise the top sinks slowly
+        // back towards it.
+        var top = max(ceilingFloor, min(ceilingLimit, ceiling * decay))
+        if measured > top { top = min(ceilingLimit, measured) }
+
+        let result: Int?
+        if measured <= floor {
+            result = nil
+        } else {
+            // Logarithmic, because the readings span more than a decade: 138
+            // hits captured on the device ran from 0.0097 g to 0.36 g, with a
+            // median of 0.017. Scaling that linearly puts an ordinary hit two
+            // percent up the range and makes the whole instrument quiet; on a
+            // log scale the same hit lands where it belongs. Loudness is heard
+            // logarithmically anyway.
+            let span = log(max(top, floor * 2) / floor)
+            let scaled = min(1.0, log(measured / floor) / span)
+            result = max(1, min(127, Int(24 + pow(scaled, 1.15) * 103)))
+        }
+        print(String(format: "strike %.4f g, ceiling %.3f -> %@",
+                     measured, top, result.map(String.init) ?? "below floor"))
+        DispatchQueue.main.async {
+            self.lastPeak = measured
+            self.ceiling = top
+            self.lastVelocity = result ?? 0
+        }
+        return result
     }
 }
