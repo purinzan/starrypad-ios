@@ -1,0 +1,6 @@
+.DS_Store
+
+# Generated from project.yml by xcodegen, and staged by its pre-build script.
+build/
+Starrypad.xcodeproj/
+Starrypad/Resources/

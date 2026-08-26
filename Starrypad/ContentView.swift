@@ -11,6 +11,8 @@ struct ContentView: View {
     @State private var lastHit = "—"
     @State private var lastVelocity = 0
     @State private var loaded = 0
+    @State private var notes = NoteMap()
+    @State private var lastNote: UInt8?
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 4)
     /// Pad 0 is bottom left, so the grid is drawn from the top row down.
@@ -47,7 +49,14 @@ struct ContentView: View {
                 Text("STARRYPAD").font(.system(size: 12, weight: .semibold)).kerning(2.4)
                     .foregroundStyle(Palette.accent)
                 Text(midi.sourceNames.first ?? "No MIDI in")
-                    .font(.system(size: 12)).foregroundStyle(Palette.ink3)
+                    .font(.system(size: 12))
+                    .foregroundStyle(midi.sourceNames.isEmpty ? Palette.ink3 : Palette.signal)
+                    .lineLimit(1)
+                if let lastNote {
+                    Text("note \(lastNote) · \(notes.source.rawValue)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(Palette.ink3)
+                }
             }
             Spacer()
             readout("Now", lastHit, accent: false)
@@ -175,7 +184,9 @@ struct ContentView: View {
             strike(pad, velocity: velocity, record: false)
         }
         midi.onNote = { note, velocity in
-            guard let pad = Kit.pad(forNote: note) else { return }
+            // Never drop a hit: NoteMap always answers with a pad.
+            let pad = Kit.pads[notes.pad(for: note)]
+            lastNote = note
             strike(pad, velocity: Int(velocity))
         }
         midi.start()

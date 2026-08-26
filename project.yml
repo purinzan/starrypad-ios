@@ -11,21 +11,11 @@ targets:
     platform: iOS
     sources:
       - path: Starrypad
-    resources:
-      - path: Starrypad/Resources
-    # Resources are staged from the desktop app's sample library rather than
-    # committed twice. Pointing `resources` straight at ../samples builds
-    # cleanly and bundles nothing, which fails only at runtime, so the copy is
-    # explicit and happens before every build.
-    preBuildScripts:
-      - name: Stage kit samples
-        script: |
-          set -e
-          staging="$SRCROOT/Starrypad/Resources"
-          mkdir -p "$staging"
-          rsync -a --delete --include="*.wav" --exclude="*" \
-            "$SRCROOT/../samples/tr808/" "$SRCROOT/../samples/impact/" "$staging/"
-        basedOnDependencyAnalysis: false
+      # A target has no `resources:` key; xcodegen silently ignores one, and
+      # the build still succeeds with an empty bundle, which shows up only as
+      # silence at runtime. Count the wavs in the .app after touching this.
+      - path: Samples
+        buildPhase: resources
     info:
       path: Starrypad/Info.plist
       properties:
@@ -45,5 +35,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.purinzan.starrypad
         TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_VERSION: "5.0"
-        CODE_SIGNING_ALLOWED: NO
         GENERATE_INFOPLIST_FILE: NO
+        # Signed for the device, because the point of this app is a class
+        # compliant USB pad plugged into the phone, and the simulator has no
+        # USB. Automatic signing renews the profile as it expires.
+        DEVELOPMENT_TEAM: F7TP2WY85S
+        CODE_SIGN_STYLE: Automatic

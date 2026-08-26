@@ -1,0 +1,25 @@
+Audio samples ship in two sets, under two different terms.
+
+
+Samples/ — the TR-808 sounds
+----------------------------
+
+Derived from the Roland TR-808 Sound Sample Set 1.0.0 (1994) by Michael
+Fischer, as published by the TidalCycles project under the Creative Commons
+CC0 1.0 Universal Public Domain Dedication:
+https://github.com/tidalcycles/sounds-tr808-fischer
+https://creativecommons.org/publicdomain/zero/1.0/
+
+The files here were trimmed to their transient, resampled from 44.1 kHz to
+48 kHz in the frequency domain, normalized, and written as 24-bit stereo.
+CC0 imposes no conditions, so no attribution is required; it is recorded
+here because knowing where a sound came from is worth more than the licence
+requires.
+
+
+Samples/ — the glass sounds
+---------------------------
+
+glass_break, glass_shatter and glass_tap are generated rather than recorded:
+inharmonic partials, a filtered noise transient, and scattered grains for the
+debris tail. Part of this project and covered by its LICENSE.
