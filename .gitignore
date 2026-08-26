@@ -4,3 +4,6 @@
 build/
 Starrypad.xcodeproj/
 Starrypad/Resources/
+
+# Simulator build output from verification runs.
+build-sim/

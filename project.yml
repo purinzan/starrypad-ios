@@ -30,6 +30,11 @@ targets:
         # matters for a pad you are playing from a connected controller.
         UIBackgroundModes:
           - audio
+        # Required before iOS will even show the microphone prompt; without it
+        # the app is terminated the moment it asks.
+        NSMicrophoneUsageDescription: >-
+          Starrypad records short sounds from the microphone so you can play
+          them on a pad. Recordings stay on this device.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.purinzan.starrypad

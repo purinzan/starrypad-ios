@@ -20,6 +20,8 @@
 	<string>0.1</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Starrypad records short sounds from the microphone so you can play them on a pad. Recordings stay on this device.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

@@ -1,0 +1,116 @@
+import AVFoundation
+import Foundation
+
+/// Where recordings live, and what they are called.
+///
+/// One flat folder in Documents, names stamped with the time they were made.
+/// Nothing overwrites anything: a slot points at a name, and undoing an
+/// assignment has to find the old sound still there.
+enum Recordings {
+    static var directory: URL {
+        let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let folder = base.appendingPathComponent("Recordings", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }
+
+    static func url(for name: String) -> URL {
+        directory.appendingPathComponent(name)
+    }
+
+    static func newName(prefix: String) -> String {
+        let stamp = Int(Date().timeIntervalSince1970 * 1000)
+        return "\(prefix)-\(stamp).wav"
+    }
+
+    static func all() -> [String] {
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        return files.filter { $0.hasSuffix(".wav") }.sorted()
+    }
+}
+
+/// Records the microphone straight to a wav.
+///
+/// AVAudioRecorder rather than a tap on the engine: the engine is already
+/// running for playback, and asking it to also own the input graph is how you
+/// get a route change to take the pads down with it.
+final class Recorder: NSObject, ObservableObject {
+
+    @Published private(set) var isRecording = false
+    @Published private(set) var level: Float = 0       // 0...1, for the meter
+    @Published private(set) var seconds: Double = 0
+
+    private var recorder: AVAudioRecorder?
+    private var meterTimer: Timer?
+    private var currentName: String?
+
+    /// Ask once. iOS shows its own prompt; refusing is a normal answer.
+    func requestAccess(_ done: @escaping (Bool) -> Void) {
+        if #available(iOS 17.0, *) {
+            AVAudioApplication.requestRecordPermission { granted in
+                DispatchQueue.main.async { done(granted) }
+            }
+        } else {
+            AVAudioSession.sharedInstance().requestRecordPermission { granted in
+                DispatchQueue.main.async { done(granted) }
+            }
+        }
+    }
+
+    @discardableResult
+    func start() -> Bool {
+        guard !isRecording else { return false }
+        let name = Recordings.newName(prefix: "mic")
+        let settings: [String: Any] = [
+            AVFormatIDKey: Int(kAudioFormatLinearPCM),
+            AVSampleRateKey: 48000,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+        ]
+        do {
+            let recorder = try AVAudioRecorder(url: Recordings.url(for: name), settings: settings)
+            recorder.isMeteringEnabled = true
+            guard recorder.record() else { return false }
+            self.recorder = recorder
+            currentName = name
+            isRecording = true
+            meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
+                self?.sampleMeter()
+            }
+            return true
+        } catch {
+            print("recorder: \(error)")
+            return false
+        }
+    }
+
+    /// Stop and hand back the name, or nil if nothing usable was captured.
+    func stop() -> String? {
+        guard let recorder, isRecording else { return nil }
+        recorder.stop()
+        meterTimer?.invalidate()
+        meterTimer = nil
+        isRecording = false
+        level = 0
+        self.recorder = nil
+        guard let name = currentName else { return nil }
+        currentName = nil
+        // A tap that lasts a few frames is a mis-hit, not a sample.
+        guard seconds > 0.05 else {
+            try? FileManager.default.removeItem(at: Recordings.url(for: name))
+            return nil
+        }
+        return name
+    }
+
+    private func sampleMeter() {
+        guard let recorder else { return }
+        recorder.updateMeters()
+        // dBFS is logarithmic and mostly empty at the bottom; -50 dB is a
+        // usable floor for a meter someone is watching while they play.
+        let decibels = recorder.averagePower(forChannel: 0)
+        level = max(0, min(1, (decibels + 50) / 50))
+        seconds = recorder.currentTime
+    }
+}
