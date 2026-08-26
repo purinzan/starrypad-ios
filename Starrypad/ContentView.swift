@@ -92,6 +92,14 @@ struct ContentView: View {
                 rack.setSound(source, label: label, on: target)
                 status = "\(label) is on \(Banks.label(for: target))"
             },
+            onPreview: { source in
+                if case .user(let name) = source { _ = player.load(userSample: name) }
+                // Heard as it is, not as the pad has it set: this is choosing a
+                // sound, and the pad's tune and trim belong to the old one.
+                var bare = PadSlot(id: target, source: source, label: "", hue: .clear)
+                bare.level = 1
+                player.play(bare, velocity: 110)
+            },
             onDelete: { name in
                 try? FileManager.default.removeItem(at: Recordings.url(for: name))
                 recordings = Recordings.all()
