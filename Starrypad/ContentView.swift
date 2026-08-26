@@ -32,7 +32,14 @@ struct ContentView: View {
     @State private var picking: Int?
     @State private var recordings: [String] = []
 
+    @State private var pressOrigin: CGPoint?
+    @State private var dragged = false
+
     private let holdSeconds = 0.45
+    /// How far a finger may wander and still count as staying put. A finger
+    /// resting on glass is never perfectly still, and a hold that a tremor can
+    /// cancel is a hold nobody can perform.
+    private let driftLimit: CGFloat = 16
 
     private enum Screen: String, CaseIterable { case play = "Pads", mix = "Mixer", sample = "Sampler" }
 
@@ -340,6 +347,8 @@ struct ContentView: View {
                     .onChanged { touch in
                         if !touching.contains(slot.id) {
                             touching.insert(slot.id)
+                            pressOrigin = touch.location
+                            dragged = false
                             // Touch carries no velocity, so the pad does: the
                             // higher up you hit it, the harder it lands.
                             let local = touch.location.y - geometry.frame(in: .named("grid")).minY
@@ -348,7 +357,13 @@ struct ContentView: View {
                             strike(slot, velocity: 24 + Int(depth * 103))
                             beginHoldTimer(for: slot.id)
                         }
-                        if held == slot.id {
+                        if let origin = pressOrigin,
+                           hypot(touch.location.x - origin.x, touch.location.y - origin.y) > driftLimit {
+                            dragged = true
+                        }
+                        // A target only exists once the finger has actually
+                        // left; standing still is not aiming at yourself.
+                        if held == slot.id, dragged {
                             swapTarget = position(at: touch.location).map {
                                 rack.bank * Banks.padCount + $0
                             }
@@ -391,17 +406,23 @@ struct ContentView: View {
     /// another swaps the two.
     private func beginHoldTimer(for id: Int) {
         DispatchQueue.main.asyncAfter(deadline: .now() + holdSeconds) {
-            guard touching.contains(id), held == nil else { return }
+            // A finger that has already set off is playing, not holding.
+            guard touching.contains(id), held == nil, !dragged else { return }
             held = id
-            swapTarget = id
+            swapTarget = nil
             UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
         }
     }
 
+    /// Held and still means the picker. Held and dragged onto another pad
+    /// means a swap. Held, dragged, and let go anywhere else - including back
+    /// where it started - means nothing, because by then you have shown that
+    /// you did not want the picker.
     private func finishHold(from id: Int) {
-        defer { held = nil; swapTarget = nil }
+        defer { held = nil; swapTarget = nil; pressOrigin = nil; dragged = false }
         guard held == id else { return }
-        if let target = swapTarget, target != id {
+        if dragged {
+            guard let target = swapTarget, target != id else { return }
             rack.swap(id, target)
             looper.swapPads(id, target)
             player.invalidate(rack.slots[id].source)
