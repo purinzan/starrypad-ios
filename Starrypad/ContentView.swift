@@ -21,6 +21,9 @@ struct ContentView: View {
     @State private var pickingVideo = false
     @State private var master = Double(SamplePlayer.defaultMakeupDecibels)
     @State private var learning = false
+    /// Pads with a finger currently down, so a drag fires once and not
+    /// every time the touch moves a pixel.
+    @State private var touching: Set<Int> = []
 
     private enum Screen: String, CaseIterable { case play = "Pads", mix = "Mixer", sample = "Sampler" }
 
@@ -274,13 +277,19 @@ struct ContentView: View {
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
-                    .onEnded { touch in
+                    // onChanged, not onEnded: the first event of a drag is the
+                    // touch landing, and a drum that sounds when you lift your
+                    // finger is not a drum.
+                    .onChanged { touch in
+                        guard !touching.contains(slot.id) else { return }
+                        touching.insert(slot.id)
                         // Touch carries no velocity, so the pad does: the
                         // higher up you hit it, the harder it lands.
                         let depth = 1.0 - min(max(touch.location.y / geometry.size.height, 0), 1)
                         rack.selected = slot.id
                         strike(slot, velocity: 24 + Int(depth * 103))
                     }
+                    .onEnded { _ in touching.remove(slot.id) }
             )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

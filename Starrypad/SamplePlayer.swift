@@ -22,6 +22,10 @@ final class SamplePlayer {
     private var makeup: Float = SamplePlayer.defaultMakeupDecibels
     private var voices: [AVAudioPlayerNode] = []
     private var buffers: [String: AVAudioPCMBuffer] = [:]
+    /// The same buffers with output gain already applied. A hit reads from
+    /// here, so the multiply and the tanh happen once at load rather than on
+    /// the main thread on the way to the speaker.
+    private var amplified: [String: AVAudioPCMBuffer] = [:]
     /// Trimmed and tuned versions, keyed by what made them. Deriving a buffer
     /// costs milliseconds, which is a whole hit's worth of latency, so it
     /// happens once and not on the way to the speaker.
@@ -92,8 +96,9 @@ final class SamplePlayer {
             let wanted = max(0, min(12, newValue))
             guard wanted != makeup else { return }
             makeup = wanted
-            // Gain is baked into the derived buffers, so they are now stale.
+            // Gain is baked in, so everything downstream of it is stale.
             derived.removeAll()
+            rebuildAmplified()
         }
     }
 
@@ -110,6 +115,7 @@ final class SamplePlayer {
             }
             buffers[key] = buffer
         }
+        rebuildAmplified()
         return buffers.count
     }
 
@@ -120,6 +126,7 @@ final class SamplePlayer {
         if buffers[key] != nil { return true }
         guard let buffer = Self.buffer(at: Recordings.url(for: name), as: format) else { return false }
         buffers[key] = buffer
+        amplified[key] = Self.amplify(buffer, decibels: makeup)
         return true
     }
 
@@ -141,6 +148,10 @@ final class SamplePlayer {
         for voice in voices {
             voice.play()
         }
+        let session = AVAudioSession.sharedInstance()
+        print(String(format: "audio: buffer %.2f ms (asked 3.00), output %.2f ms, rate %.0f Hz",
+                     session.ioBufferDuration * 1000, session.outputLatency * 1000,
+                     session.sampleRate))
     }
 
     /// Play one hit. Velocity shapes gain through the ported curve; the slot
@@ -189,23 +200,30 @@ final class SamplePlayer {
 
     // MARK: - Deriving
 
+    /// Gain is already in the base buffer, so an untrimmed, untuned pad - the
+    /// common case, and every pad on a fresh kit - does no work at all here.
     private func resolved(_ slot: PadSlot) -> AVAudioPCMBuffer? {
-        guard let original = buffers[slot.source.key] else { return nil }
-        guard slot.isTrimmed || slot.tune != 0 || makeup > 0.01 else { return original }
-        let key = "\(slot.source.key)|\(slot.start)|\(slot.end)|\(slot.tune)|\(makeup)"
+        guard let base = amplified[slot.source.key] ?? buffers[slot.source.key] else { return nil }
+        guard slot.isTrimmed || slot.tune != 0 else { return base }
+        let key = "\(slot.source.key)|\(slot.start)|\(slot.end)|\(slot.tune)"
         if let cached = derived[key] { return cached }
-        var working = original
+        var working = base
         if slot.isTrimmed, let cut = Self.trim(working, from: slot.start, to: slot.end) {
             working = cut
         }
         if slot.tune != 0, let tuned = Self.retune(working, semitones: slot.tune) {
             working = tuned
         }
-        if makeup > 0.01, let louder = Self.amplify(working, decibels: makeup) {
-            working = louder
-        }
         derived[key] = working
         return working
+    }
+
+    private func rebuildAmplified() {
+        amplified.removeAll()
+        guard makeup > 0.01 else { return }
+        for (key, buffer) in buffers {
+            amplified[key] = Self.amplify(buffer, decibels: makeup)
+        }
     }
 
     private static func trim(_ buffer: AVAudioPCMBuffer, from start: Double, to end: Double)
