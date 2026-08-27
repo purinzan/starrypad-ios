@@ -146,6 +146,15 @@ enum Kit {
     /// Everything the sound picker can offer.
     static let all: [Pad] = acoustic + electronic
 
+    /// Which sounds share an instrument and so cannot ring together.
+    ///
+    /// Only the hats, because they are the only pair on a kit where one is
+    /// physically the other: a closed hat is an open hat with the pedal down.
+    /// Toms and cymbals really can ring at the same time.
+    static func chokeGroup(for pad: Pad) -> String? {
+        pad.sound.lowercased().contains("hat") ? "hihat" : nil
+    }
+
     static func pad(forNote note: UInt8) -> Pad? {
         electronic.first { $0.note == note }
     }

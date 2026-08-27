@@ -36,6 +36,11 @@ struct PadSlot: Identifiable {
     var start: Double = 0
     var end: Double = 1
 
+    /// Pads that cannot ring at once. A closed hi-hat is the same instrument
+    /// as an open one with a foot on it, so hitting one has to stop the other;
+    /// two hats ringing together is a sound a kit cannot make.
+    var chokeGroup: String?
+
     var bank: Int { id / Banks.padCount }
     var positionInBank: Int { id % Banks.padCount }
     var isTrimmed: Bool { start > 0.0001 || end < 0.9999 }
@@ -59,6 +64,8 @@ enum Banks {
                                label: pad.sound, hue: bank > 1 ? Palette.ink3 : pad.hue)
             slot.level = pad.gain
             slot.tune = pad.tune
+            // Per bank, so an open hat in A is not silenced by a closed one in B.
+            slot.chokeGroup = Kit.chokeGroup(for: pad).map { "\(bank):\($0)" }
             slot.end = 1
             return slot
         }
@@ -148,6 +155,8 @@ final class Rack: ObservableObject {
         switch source {
         case .user(let name):
             slots[id].hue = Palette.signal
+            // A recording is its own sound; nothing else should cut it off.
+            slots[id].chokeGroup = nil
             // The trim came with the sample, so it comes back with it.
             let region = Recordings.trim(for: name)
             slots[id].start = region.start
@@ -160,6 +169,10 @@ final class Rack: ObservableObject {
                 slots[id].hue = pad.hue
                 slots[id].level = pad.gain
                 slots[id].tune = pad.tune
+                slots[id].chokeGroup = Kit.chokeGroup(for: pad)
+                    .map { "\(slots[id].bank):\($0)" }
+            } else {
+                slots[id].chokeGroup = nil
             }
         }
     }

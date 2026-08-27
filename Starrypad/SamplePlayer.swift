@@ -31,6 +31,8 @@ final class SamplePlayer {
     /// happens once and not on the way to the speaker.
     private var derived: [String: AVAudioPCMBuffer] = [:]
     private var nextVoice = 0
+    /// What each voice is currently sounding, for choking. Parallel to voices.
+    private var voiceGroups: [String?] = []
     private let format: AVAudioFormat
 
     init(voiceCount: Int = 24) {
@@ -42,6 +44,7 @@ final class SamplePlayer {
             engine.connect(node, to: engine.mainMixerNode, format: format)
             voices.append(node)
         }
+        voiceGroups = Array(repeating: nil, count: voices.count)
         observeInterruptions()
     }
 
@@ -209,11 +212,26 @@ final class SamplePlayer {
     /// contributes its own level, pan, tune and trim.
     func play(_ slot: PadSlot, velocity: Int) {
         guard let buffer = resolved(slot) else { return }
+        if let group = slot.chokeGroup { choke(group) }
         let voice = voices[nextVoice]
+        voiceGroups[nextVoice] = slot.chokeGroup
         nextVoice = (nextVoice + 1) % voices.count
         voice.volume = Velocity.gain(velocity) * Float(slot.level)
         voice.pan = Float(max(-1, min(1, slot.pan)))
         voice.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
+    }
+
+    /// Silence whatever is still ringing in this group.
+    ///
+    /// Stopping the node rather than fading it: a sampler's choke is a cut,
+    /// and the hit doing the choking covers it - a closed hat lands on top of
+    /// the open one it is silencing.
+    private func choke(_ group: String) {
+        for index in voices.indices where voiceGroups[index] == group {
+            voices[index].stop()
+            voices[index].play()
+            voiceGroups[index] = nil
+        }
     }
 
     /// A count-in click, made rather than sampled.
