@@ -21,9 +21,8 @@ struct ContentView: View {
     @State private var pickingVideo = false
     @State private var master = Double(SamplePlayer.defaultMakeupDecibels)
     @State private var learning = false
-    /// Pads with a finger currently down, so a drag fires once and not
-    /// every time the touch moves a pixel.
-    @State private var touching: Set<Int> = []
+    /// Every finger currently down, keyed by touch.
+    @State private var presses: [Int: Press] = [:]
     /// Holding a pad. Lift without moving and the sound picker opens; drag to
     /// another pad and the two swap. One gesture, decided by what you do next.
     @State private var held: Int?
@@ -32,22 +31,12 @@ struct ContentView: View {
     @State private var picking: Int?
     @State private var recordings: [String] = []
 
-    @State private var pressOrigin: CGPoint?
-    @State private var dragged = false
-    /// Which press the pending hold timer belongs to. Without it, the timer
-    /// from one tap fires during a later tap - it only checks that the pad is
-    /// held right now, and while you are drumming it always is.
-    @State private var pressToken = 0
     @State private var renaming = false
     @State private var taps: [TimeInterval] = []
     @StateObject private var force = StrikeForce()
     @AppStorage("velocityFromForce") private var velocityFromForce = true
 
     private let holdSeconds = 0.45
-    /// How far a finger may wander and still count as staying put. A finger
-    /// resting on glass is never perfectly still, and a hold that a tremor can
-    /// cancel is a hold nobody can perform.
-    private let driftLimit: CGFloat = 16
 
     private enum Screen: String, CaseIterable { case play = "Pads", mix = "Mixer", sample = "Sampler" }
 
@@ -90,8 +79,10 @@ struct ContentView: View {
             }
             .onAppear { gridSize = grid.size }
             .onChange(of: grid.size) { _, size in gridSize = size }
+            .overlay(
+                PadTouches(onDown: touchDown, onMove: touchMoved, onUp: touchUp)
+            )
         }
-        .coordinateSpace(name: "grid")
         .frame(maxHeight: .infinity)
     }
 
@@ -395,48 +386,6 @@ struct ContentView: View {
             .animation(.easeOut(duration: 0.12), value: isHeld)
             .shadow(color: Palette.accent.opacity(energy * 0.55), radius: 4 + 12 * energy)
             .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0, coordinateSpace: .named("grid"))
-                    // onChanged, not onEnded: the first event of a drag is the
-                    // touch landing, and a drum that sounds when you lift your
-                    // finger is not a drum.
-                    .onChanged { touch in
-                        if !touching.contains(slot.id) {
-                            touching.insert(slot.id)
-                            pressOrigin = touch.location
-                            dragged = false
-                            pressToken &+= 1
-                            // Touch carries no velocity, so the pad does: the
-                            // higher up you hit it, the harder it lands.
-                            // How hard you hit if the phone can tell, and
-                            // otherwise how high up the pad you hit - which is
-                            // all a screen can offer on its own.
-                            let local = touch.location.y - geometry.frame(in: .named("grid")).minY
-                            let depth = 1.0 - min(max(local / geometry.size.height, 0), 1)
-                            let byPosition = 24 + Int(depth * 103)
-                            let velocity = velocityFromForce
-                                ? (force.velocity() ?? byPosition) : byPosition
-                            rack.selected = slot.id
-                            strike(slot, velocity: velocity)
-                            beginHoldTimer(for: slot.id, token: pressToken)
-                        }
-                        if let origin = pressOrigin,
-                           hypot(touch.location.x - origin.x, touch.location.y - origin.y) > driftLimit {
-                            dragged = true
-                        }
-                        // A target only exists once the finger has actually
-                        // left; standing still is not aiming at yourself.
-                        if held == slot.id, dragged {
-                            swapTarget = position(at: touch.location).map {
-                                rack.bank * Banks.padCount + $0
-                            }
-                        }
-                    }
-                    .onEnded { _ in
-                        touching.remove(slot.id)
-                        finishHold(from: slot.id)
-                    }
-            )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -471,48 +420,62 @@ struct ContentView: View {
         force.start()
     }
 
-    /// A held pad that has not moved yet opens the picker; one dragged onto
-    /// another swaps the two.
-    private func beginHoldTimer(for id: Int, token: Int) {
+    /// One finger's worth of press, so two fingers do not share one set of
+    /// variables and cancel each other's hold.
+    private struct Press {
+        var slot: Int
+        var origin: Int          // the position it landed on
+        var dragged = false
+        var target: Int?
+    }
+
+    private func touchDown(id: Int, position: Int, depth: Double) {
+        let slotID = rack.bank * Banks.padCount + position
+        presses[id] = Press(slot: slotID, origin: position)
+        rack.selected = slotID
+
+        let byPosition = 24 + Int(depth * 103)
+        let velocity = velocityFromForce ? (force.velocity() ?? byPosition) : byPosition
+        strike(rack.slots[slotID], velocity: velocity)
+
+        // Holding is a one finger gesture. With a second finger down you are
+        // playing, and nothing should open a sheet under your hands.
+        guard presses.count == 1 else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + holdSeconds) {
-            // Same press, still down, still still. The token is what makes the
-            // first condition mean "this press" rather than "any press".
-            guard pressToken == token, touching.contains(id), held == nil, !dragged else { return }
-            held = id
+            guard presses.count == 1, let press = presses[id],
+                  !press.dragged, held == nil else { return }
+            held = press.slot
             swapTarget = nil
             UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
         }
     }
 
-    /// Held and still means the picker. Held and dragged onto another pad
-    /// means a swap. Held, dragged, and let go anywhere else - including back
-    /// where it started - means nothing, because by then you have shown that
-    /// you did not want the picker.
-    private func finishHold(from id: Int) {
-        defer { held = nil; swapTarget = nil; pressOrigin = nil; dragged = false }
-        guard held == id else { return }
-        if dragged {
-            guard let target = swapTarget, target != id else { return }
-            rack.swap(id, target)
-            looper.swapPads(id, target)
-            player.invalidate(rack.slots[id].source)
+    private func touchMoved(id: Int, position: Int?) {
+        guard var press = presses[id] else { return }
+        if let position, position != press.origin { press.dragged = true }
+        if held == press.slot, press.dragged, let position {
+            swapTarget = rack.bank * Banks.padCount + position
+        }
+        press.target = position.map { rack.bank * Banks.padCount + $0 }
+        presses[id] = press
+    }
+
+    private func touchUp(id: Int) {
+        guard let press = presses.removeValue(forKey: id) else { return }
+        guard held == press.slot else { return }
+        defer { held = nil; swapTarget = nil }
+        if press.dragged {
+            guard let target = swapTarget, target != press.slot else { return }
+            rack.swap(press.slot, target)
+            looper.swapPads(press.slot, target)
+            player.invalidate(rack.slots[press.slot].source)
             player.invalidate(rack.slots[target].source)
-            status = "\(Banks.label(for: id)) and \(Banks.label(for: target)) swapped"
+            status = "\(Banks.label(for: press.slot)) and \(Banks.label(for: target)) swapped"
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         } else {
             recordings = Recordings.all()
-            picking = id
+            picking = press.slot
         }
-    }
-
-    /// Which position in the grid a point in the grid's own space falls on.
-    private func position(at point: CGPoint) -> Int? {
-        guard gridSize.width > 0, gridSize.height > 0 else { return nil }
-        let column = Int(point.x / (gridSize.width / 4))
-        let row = Int(point.y / (gridSize.height / 4))
-        guard (0..<4).contains(column), (0..<4).contains(row) else { return nil }
-        // Row 0 is the top of the screen, which is the last row of positions.
-        return (3 - row) * 4 + column
     }
 
     private func strike(_ slot: PadSlot, velocity: Int, record: Bool = true) {
