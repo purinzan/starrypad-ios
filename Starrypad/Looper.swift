@@ -29,7 +29,35 @@ final class Looper: ObservableObject {
     }
 
     @Published private(set) var state: State = .idle
-    @Published private(set) var events: [Event] = []
+    @Published private(set) var events: [Event] = [] {
+        didSet { publishSchedule() }
+    }
+
+    /// The take as the scheduler sees it.
+    ///
+    /// `events` is published and belongs to the main thread; the tick runs on
+    /// its own queue every millisecond and used to read the same array. One
+    /// thread growing a Swift array while another iterates it is a
+    /// use-after-free waiting for a busy bar - the kind of crash that arrives
+    /// once in a hundred takes and never where you are looking. The scheduler
+    /// reads its own copy instead, swapped under a lock whenever the take
+    /// changes. Copying is a retain, not a copy: the storage is shared until
+    /// one of them writes.
+    private var schedule: [Event] = []
+    private let scheduleLock = NSLock()
+
+    private func publishSchedule() {
+        let snapshot = events
+        scheduleLock.lock()
+        schedule = snapshot
+        scheduleLock.unlock()
+    }
+
+    private var scheduled: [Event] {
+        scheduleLock.lock()
+        defer { scheduleLock.unlock() }
+        return schedule
+    }
     @Published var bars: Int = UserDefaults.standard.object(forKey: "loop.bars") as? Int ?? 2 {
         didSet {
             events = events.filter { $0.beat < totalBeats }
@@ -350,15 +378,16 @@ final class Looper: ObservableObject {
         let previous = lastPosition
         lastPosition = now
         if state == .recording, clickThrough { clickTick(at: now) }
-        guard !events.isEmpty else { return }
+        let take = scheduled
+        guard !take.isEmpty else { return }
 
         // The window is normally tiny and forward; at the loop point it wraps,
         // and then it is two windows, not one.
         let due: [Event]
         if now >= previous {
-            due = events.filter { $0.beat > previous && $0.beat <= now }
+            due = take.filter { $0.beat > previous && $0.beat <= now }
         } else {
-            due = events.filter { $0.beat > previous || $0.beat <= now }
+            due = take.filter { $0.beat > previous || $0.beat <= now }
         }
         guard !due.isEmpty else { return }
         DispatchQueue.main.async { [weak self] in

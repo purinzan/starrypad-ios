@@ -37,7 +37,10 @@ enum VideoImport {
             catch { outcome = .failure(error) }
             done.signal()
         }
-        done.wait()
+        // Bounded, because this blocks a thread the picker owns. A video that
+        // will not open should end as an error message, not as a queue that
+        // never comes back.
+        if done.wait(timeout: .now() + 90) == .timedOut { return .failure(Failure.unreadable) }
         return outcome
     }
 

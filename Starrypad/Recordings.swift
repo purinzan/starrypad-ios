@@ -83,6 +83,18 @@ enum Recordings {
 /// running for playback, and asking it to also own the input graph is how you
 /// get a route change to take the pads down with it.
 final class Recorder: NSObject, ObservableObject {
+    /// The longest a single take may run, in seconds.
+    ///
+    /// The same thirty the video import takes, for the same two reasons: a
+    /// sampler wants a sound and not a performance, and a loaded buffer is
+    /// eleven megabytes a minute per pad whether or not anyone plays it.
+    static let longestRecording: TimeInterval = 30
+
+    /// Called when the take ended by itself rather than by being stopped, so
+    /// the screen that started it can finish the job. Without this the ceiling
+    /// would stop the recorder and leave the app still saying "recording".
+    var onEndedItself: ((String?) -> Void)?
+
     private static let log = Logger(subsystem: "com.purinzan.starrypad", category: "Recording")
 
 
@@ -121,7 +133,11 @@ final class Recorder: NSObject, ObservableObject {
         do {
             let recorder = try AVAudioRecorder(url: Recordings.url(for: name), settings: settings)
             recorder.isMeteringEnabled = true
-            guard recorder.record() else { return false }
+            // A ceiling, because nothing else stops this. Forgetting the app
+            // is recording should cost you a minute of disk, not the rest of
+            // the phone's storage and a buffer too large to hold - and the
+            // sampler takes the first thirty seconds of it anyway.
+            guard recorder.record(forDuration: Self.longestRecording) else { return false }
             self.recorder = recorder
             currentName = name
             isRecording = true
@@ -156,6 +172,13 @@ final class Recorder: NSObject, ObservableObject {
 
     private func sampleMeter() {
         guard let recorder else { return }
+        // It stops itself at the ceiling. The model has to notice, or the
+        // meter freezes and the button goes on claiming to be recording.
+        guard recorder.isRecording else {
+            let name = stop()
+            onEndedItself?(name)
+            return
+        }
         recorder.updateMeters()
         // dBFS is logarithmic and mostly empty at the bottom; -50 dB is a
         // usable floor for a meter someone is watching while they play.

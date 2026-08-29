@@ -474,8 +474,9 @@ final class SamplePlayer {
 
     // MARK: - Deriving
 
-    /// Gain is already in the base buffer, so an untrimmed, untuned pad - the
-    /// common case, and every pad on a fresh kit - does no work at all here.
+    /// An untrimmed, untuned pad - the common case, and every pad on a fresh
+    /// kit - does no work at all here. Gain is a node now, not a multiply, so
+    /// nothing downstream of the master knob is ever stale.
     private func resolved(_ slot: PadSlot) -> AVAudioPCMBuffer? {
         guard let base = buffers[slot.source.key] else { return nil }
         guard slot.isTrimmed || slot.tune != 0 else { return base }

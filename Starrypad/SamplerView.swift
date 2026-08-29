@@ -153,6 +153,14 @@ struct SamplerView: View {
                     return
                 }
                 player.beginRecordingRoute()
+                recorder.onEndedItself = { name in
+                    player.endRecordingRoute()
+                    guard let name else {
+                        status = "That was too short to keep"
+                        return
+                    }
+                    adopt(name, label: "Mic")
+                }
                 if !recorder.start() {
                     player.endRecordingRoute()
                     status = "Could not start recording"
