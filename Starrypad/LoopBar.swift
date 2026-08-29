@@ -31,22 +31,30 @@ struct LoopBar: View {
                             .offset(x: width * CGFloat(event.beat / total) - 1)
                     }
 
-                    // During the count the bar fills rather than sweeps, so
-                    // there is always something moving from the moment Rec is
-                    // pressed - the wait is the part that needs showing.
+                    // One playhead, one kind of motion. The count sweeps the
+                    // bar exactly as playing does, so the line never stops or
+                    // jumps between states - it just keeps travelling.
+                    if looper.state != .idle {
+                        let counting = looper.state == .countIn
+                        let sweep = counting ? looper.countProgress : looper.position / total
+                        if counting {
+                            Rectangle()
+                                .fill(Palette.danger.opacity(0.18))
+                                .frame(width: width * CGFloat(sweep))
+                        }
+                        Rectangle()
+                            .fill(counting || looper.state == .recording
+                                  ? Palette.danger : Palette.accent)
+                            .frame(width: 2)
+                            .offset(x: width * CGFloat(sweep))
+                    }
+
                     if looper.state == .countIn {
-                        Rectangle()
-                            .fill(Palette.danger.opacity(0.25))
-                            .frame(width: width * CGFloat(looper.countProgress))
-                        Rectangle()
-                            .fill(Palette.danger)
-                            .frame(width: 2)
-                            .offset(x: width * CGFloat(looper.countProgress))
-                    } else if looper.state != .idle {
-                        Rectangle()
-                            .fill(looper.state == .recording ? Palette.danger : Palette.accent)
-                            .frame(width: 2)
-                            .offset(x: width * CGFloat(looper.position / total))
+                        Text("\(looper.countRemaining)")
+                            .font(.system(size: 26, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(Palette.danger)
+                            .shadow(color: .black.opacity(0.9), radius: 3)
+                            .frame(maxWidth: .infinity)
                     }
                 }
             }
