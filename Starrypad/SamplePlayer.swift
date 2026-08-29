@@ -207,6 +207,12 @@ final class SamplePlayer {
         start()
     }
 
+    /// How loud the click is against the kit. Fixed at 0.55 it was too much
+    /// on earphones and not enough on a train.
+    var clickVolume: Float = UserDefaults.standard.object(forKey: "click.volume") as? Float ?? 0.55 {
+        didSet { UserDefaults.standard.set(clickVolume, forKey: "click.volume") }
+    }
+
     /// How far the master knob goes, in decibels either side of unity.
     static let makeupRange: ClosedRange<Float> = -24...24
 
@@ -409,7 +415,7 @@ final class SamplePlayer {
         let index = freeVoice()
         voiceGroups[index] = nil
         voiceSources[index] = nil
-        voices[index].volume = 0.55
+        voices[index].volume = max(0, min(1, clickVolume))
         voices[index].pan = 0
         schedule(buffer, on: index)
     }
@@ -473,6 +479,11 @@ final class SamplePlayer {
     }
 
     // MARK: - Deriving
+
+    /// The buffer a hit would actually play, for writing to a file rather than
+    /// to the speaker. Trim and tune included; velocity, pan and master are the
+    /// caller's to apply, because a bounce mixes them differently to a voice.
+    func exportBuffer(for slot: PadSlot) -> AVAudioPCMBuffer? { resolved(slot) }
 
     /// An untrimmed, untuned pad - the common case, and every pad on a fresh
     /// kit - does no work at all here. Gain is a node now, not a multiply, so

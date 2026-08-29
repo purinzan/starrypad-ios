@@ -65,6 +65,11 @@ struct ContentView: View {
     /// The bank whose name is being edited, and the text so far.
     @State private var renamingBank: Int?
     @State private var showingCredits = false
+    @State private var showingSettings = false
+    /// Which format the share button is asking about, and the file once it has
+    /// one to hand over.
+    @State private var choosingExport = false
+    @State private var exported: ExportedFile?
     @State private var bankDraft = ""
     @State private var taps: [TimeInterval] = []
     @StateObject private var force = StrikeForce()
@@ -236,6 +241,23 @@ struct ContentView: View {
         }
         .sheet(item: pickingBinding) { target in soundPicker(for: target.id) }
         .sheet(isPresented: $pickingVideo) { videoPicker }
+        .confirmationDialog("ループを書き出す", isPresented: $choosingExport,
+                            titleVisibility: .visible) {
+            Button("音声で書き出す（WAV）") { export(.wav) }
+            Button("MIDI で書き出す") { export(.midi) }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text(exportSummary)
+        }
+        .sheet(item: $exported) { file in
+            ShareSheet(url: file.url)
+        }
+        .sheet(isPresented: $showingSettings) {
+            SettingsView(looper: looper, force: force,
+                         velocityFromForce: $velocityFromForce, player: player)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $showingCredits) {
             CreditsView()
                 .presentationDetents([.medium, .large])
@@ -422,14 +444,29 @@ struct ContentView: View {
                         .padding(.leading, 2)
                 }
                 Spacer(minLength: 0)
-                // Where the sounds came from. The acoustic kit's licence
-                // requires the credit to travel with the sounds.
-                Button { showingCredits = true } label: {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 15))
-                        .foregroundStyle(Palette.ink3)
+                // Send it, set it, and where it came from. Ordered by how
+                // often a hand reaches for them.
+                HStack(spacing: 16) {
+                    Button { choosingExport = true } label: {
+                        Image(systemName: "square.and.arrow.up")
+                            .foregroundStyle(looper.events.isEmpty
+                                             ? Palette.ink3 : Palette.accent)
+                    }
+                    .disabled(looper.events.isEmpty)
+                    .accessibilityLabel("Share the loop")
+
+                    Button { showingSettings = true } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityLabel("Settings")
+
+                    Button { showingCredits = true } label: {
+                        Image(systemName: "info.circle")
+                    }
+                    .accessibilityLabel("Credits and licences")
                 }
-                .accessibilityLabel("Credits and licences")
+                .font(.system(size: 15))
+                .foregroundStyle(Palette.ink3)
             }
 
             HStack(spacing: 10) {
@@ -989,6 +1026,32 @@ struct ContentView: View {
         pendingSample = nil
         status = "\(draft.label) is on \(Banks.label(for: target))"
         panel = nil
+    }
+
+    private var exportSummary: String {
+        let bars = looper.bars
+        let bpm = Int(looper.bpm)
+        return "\(bars) 小節 · \(bpm) bpm"
+    }
+
+    private enum ExportFormat { case wav, midi }
+
+    private func export(_ format: ExportFormat) {
+        do {
+            let url: URL
+            switch format {
+            case .wav:
+                url = try Export.wav(events: looper.events, bars: looper.bars,
+                                     bpm: looper.bpm, slots: rack.slots,
+                                     audible: rack.audible, player: player)
+            case .midi:
+                url = try Export.midi(events: looper.events, bars: looper.bars,
+                                      bpm: looper.bpm, slots: rack.slots)
+            }
+            exported = ExportedFile(url: url)
+        } catch {
+            status = error.localizedDescription
+        }
     }
 
     private func finishVideoImport(_ result: Result<String, Error>) {

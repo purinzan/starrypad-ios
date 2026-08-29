@@ -108,6 +108,15 @@ final class Looper: ObservableObject {
         didSet { UserDefaults.standard.set(clickThrough, forKey: "click.through") }
     }
 
+    /// Whether a bar of clicks comes before the take.
+    ///
+    /// On by default, because the first take needs somewhere to start from.
+    /// Off is for the fifth overdub, where the bar you are counting is a bar
+    /// you have already heard four times.
+    @Published var countsIn = UserDefaults.standard.object(forKey: "count.in") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(countsIn, forKey: "count.in") }
+    }
+
     /// Record has been asked for while the loop is playing, and is waiting for
     /// the bar line to come round.
     @Published private(set) var armed = false
@@ -199,6 +208,11 @@ final class Looper: ObservableObject {
             }
         case .idle:
             pushHistory()
+            guard countsIn else {
+                begin()
+                state = .recording
+                return
+            }
             beginCountIn(keepPlaying: false)
         }
     }
@@ -415,6 +429,19 @@ final class Looper: ObservableObject {
         guard let previous else { return }
         // Remaining counts down to zero and jumps back up at the wrap.
         let wrapped = remaining > previous
+        // With no count wanted, the wrap itself is the moment: the loop comes
+        // round and recording is simply on, with nothing in between.
+        guard countsIn else {
+            guard wrapped else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.state == .playing, self.armed else { return }
+                self.armed = false
+                self.lastArmRemaining = nil
+                self.lastClickBeat = -1
+                self.state = .recording
+            }
+            return
+        }
         let crossing = previous > 4 && remaining <= 4
         // A one-bar loop is never more than four beats from its own wrap, so
         // there the count starts at the wrap itself.
