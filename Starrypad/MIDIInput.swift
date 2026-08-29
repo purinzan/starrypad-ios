@@ -1,5 +1,6 @@
 import CoreMIDI
 import Foundation
+import OSLog
 
 /// CoreMIDI input, the same shape as the desktop backend.
 ///
@@ -9,6 +10,8 @@ import Foundation
 /// cannot be loaded inside an iOS sandbox, so this is the same protocol
 /// reimplemented rather than shared code.
 final class MIDIInput: ObservableObject {
+    private static let log = Logger(subsystem: "com.purinzan.starrypad", category: "MIDI")
+
 
     /// Note number and velocity for every note on, on the main queue.
     var onNote: ((UInt8, UInt8) -> Void)?
@@ -27,7 +30,7 @@ final class MIDIInput: ObservableObject {
             DispatchQueue.main.async { self?.connectAllSources() }
         }
         guard status == noErr else {
-            print("MIDIClientCreate: \(status)")
+            Self.log.error("MIDIClientCreate failed: \(status)")
             return
         }
         status = MIDIInputPortCreateWithProtocol(
@@ -36,7 +39,7 @@ final class MIDIInput: ObservableObject {
             self?.handle(eventList)
         }
         guard status == noErr else {
-            print("MIDIInputPortCreate: \(status)")
+            Self.log.error("MIDIInputPortCreate failed: \(status)")
             return
         }
         connectAllSources()

@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import OSLog
 
 /// Where recordings live, and what they are called.
 ///
@@ -7,6 +8,8 @@ import Foundation
 /// Nothing overwrites anything: a slot points at a name, and undoing an
 /// assignment has to find the old sound still there.
 enum Recordings {
+    private static let log = Logger(subsystem: "com.purinzan.starrypad", category: "Recording")
+
     static var directory: URL {
         let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let folder = base.appendingPathComponent("Recordings", isDirectory: true)
@@ -80,6 +83,8 @@ enum Recordings {
 /// running for playback, and asking it to also own the input graph is how you
 /// get a route change to take the pads down with it.
 final class Recorder: NSObject, ObservableObject {
+    private static let log = Logger(subsystem: "com.purinzan.starrypad", category: "Recording")
+
 
     @Published private(set) var isRecording = false
     @Published private(set) var level: Float = 0       // 0...1, for the meter
@@ -125,7 +130,7 @@ final class Recorder: NSObject, ObservableObject {
             }
             return true
         } catch {
-            print("recorder: \(error)")
+            Self.log.error("recorder: \(error.localizedDescription)")
             return false
         }
     }

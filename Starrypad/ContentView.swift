@@ -1,6 +1,9 @@
+import OSLog
 import SwiftUI
 
 struct ContentView: View {
+    private static let log = Logger(subsystem: "com.purinzan.starrypad", category: "App")
+
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var midi = MIDIInput()
     @StateObject private var looper = Looper()
@@ -61,6 +64,7 @@ struct ContentView: View {
     @State private var renaming = false
     /// The bank whose name is being edited, and the text so far.
     @State private var renamingBank: Int?
+    @State private var showingCredits = false
     @State private var bankDraft = ""
     @State private var taps: [TimeInterval] = []
     @StateObject private var force = StrikeForce()
@@ -232,6 +236,11 @@ struct ContentView: View {
         }
         .sheet(item: pickingBinding) { target in soundPicker(for: target.id) }
         .sheet(isPresented: $pickingVideo) { videoPicker }
+        .sheet(isPresented: $showingCredits) {
+            CreditsView()
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
         // The only thing in the app that asks. Everything else is undoable,
         // and asking about undoable things is how people learn to dismiss
         // dialogs without reading them.
@@ -413,6 +422,14 @@ struct ContentView: View {
                         .padding(.leading, 2)
                 }
                 Spacer(minLength: 0)
+                // Where the sounds came from. The acoustic kit's licence
+                // requires the credit to travel with the sounds.
+                Button { showingCredits = true } label: {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 15))
+                        .foregroundStyle(Palette.ink3)
+                }
+                .accessibilityLabel("Credits and licences")
             }
 
             HStack(spacing: 10) {
@@ -745,7 +762,7 @@ struct ContentView: View {
         // Kept even though it is no longer on screen: it is the number that
         // decides whether this feels like an instrument, and it belongs in the
         // log when someone says the app feels slow.
-        print(String(format: "output latency %.2f ms", player.outputLatencyMilliseconds))
+        Self.log.info("output latency \(player.outputLatencyMilliseconds, format: .fixed(precision: 2)) ms")
         player.activateSession(reason: "launch")
         player.start()
         player.makeupDecibels = Float(master)

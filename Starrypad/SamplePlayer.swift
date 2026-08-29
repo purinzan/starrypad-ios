@@ -205,7 +205,7 @@ final class SamplePlayer {
             guard buffers[key] == nil else { continue }
             guard let url = Self.bundleURL(for: pad.file),
                   let buffer = Self.buffer(at: url, as: format) else {
-                print("missing sample: \(pad.file)")
+                Self.log.error("missing sample: \(pad.file)")
                 continue
             }
             buffers[key] = buffer

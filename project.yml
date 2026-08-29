@@ -18,16 +18,22 @@ targets:
         buildPhase: resources
       - path: Art
         buildPhase: resources
+      - path: Assets.xcassets
+        buildPhase: resources
     info:
       path: Starrypad/Info.plist
       properties:
         CFBundleDisplayName: Starrypad
-        CFBundleShortVersionString: "0.1"
+        CFBundleShortVersionString: "1.0"
         UILaunchScreen: {}
+        # Portrait only, because that is the only way this is laid out: a
+        # square grid with the transport under it. Declaring an orientation
+        # the app does not actually support is a rejection, and rightly.
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
-          - UIInterfaceOrientationLandscapeLeft
-          - UIInterfaceOrientationLandscapeRight
+        # Nothing here encrypts anything beyond what iOS does for itself, and
+        # saying so up front skips the compliance question on every upload.
+        ITSAppUsesNonExemptEncryption: false
         # Background audio keeps the engine alive when the screen locks, which
         # matters for a pad you are playing from a connected controller.
         UIBackgroundModes:
@@ -40,7 +46,12 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.purinzan.starrypad
-        TARGETED_DEVICE_FAMILY: "1,2"
+        # iPhone only. An app that claims the iPad has to be laid out for one
+        # and photographed on one; this is a phone instrument.
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.0"
         GENERATE_INFOPLIST_FILE: NO
         # Signed for the device, because the point of this app is a class

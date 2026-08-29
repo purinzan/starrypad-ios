@@ -1,5 +1,6 @@
 import CoreMotion
 import Foundation
+import OSLog
 
 /// How hard the phone was hit, from the knock it takes.
 ///
@@ -17,6 +18,8 @@ import Foundation
 /// flat on a table. Guessing that range once, wrongly, is what made every hit
 /// fall through to the old position based velocity.
 final class StrikeForce: ObservableObject {
+    private static let logger = Logger(subsystem: "com.purinzan.starrypad", category: "Motion")
+
 
     @Published private(set) var available = false
     /// The last reading and what it became, so the scale can be watched while
@@ -61,7 +64,8 @@ final class StrikeForce: ObservableObject {
             }
             available = true
         }
-        print("strike force: \(available ? "on" : "no motion sensor")")
+        let state = available ? "on" : "no motion sensor"
+        Self.logger.info("strike force: \(state, privacy: .public)")
     }
 
     func stop() {
@@ -111,8 +115,6 @@ final class StrikeForce: ObservableObject {
             let scaled = min(1.0, log(measured / floor) / span)
             result = max(1, min(127, Int(24 + pow(scaled, 1.15) * 103)))
         }
-        print(String(format: "strike %.4f g, ceiling %.3f -> %@",
-                     measured, top, result.map(String.init) ?? "below floor"))
         DispatchQueue.main.async {
             self.lastPeak = measured
             self.ceiling = top
