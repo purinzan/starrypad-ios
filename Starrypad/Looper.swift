@@ -123,6 +123,7 @@ final class Looper: ObservableObject {
     /// the handover must not restart the clock.
     private var alignedCount = false
     private var lastClickBeat = -1
+    private var lastArmRemaining: Double?
     private var lastCountBeat = -1
     private var lastSweepAt: CFTimeInterval = 0
     private var lastPosition: Double = 0
@@ -156,8 +157,10 @@ final class Looper: ObservableObject {
             // with nothing about the sound having changed.
             if armed {
                 armed = false                // pressed twice: never mind
+                lastArmRemaining = nil
             } else {
                 pushHistory()
+                lastArmRemaining = nil
                 armed = true
             }
         case .idle:
@@ -213,6 +216,7 @@ final class Looper: ObservableObject {
         alignedCount = false
         armed = false
         lastClickBeat = -1
+        lastArmRemaining = nil
         lastPosition = 0
         countRemaining = 0
         lastCountBeat = -1
@@ -352,27 +356,39 @@ final class Looper: ObservableObject {
         }
     }
 
-    /// Start the count a bar before the loop comes round, placed so its last
-    /// beat is the beat before the wrap.
+    /// Wait for the moment a whole bar of count fits before the loop comes
+    /// round, then start it there.
     ///
-    /// The count is not started from now; it is anchored backwards to where it
-    /// would have begun, so the four clicks land on the four beats already in
-    /// progress. Nothing about the playing loop moves.
+    /// The count is a count of four, not however many beats happen to be left
+    /// when your thumb lands. So arming waits - through the rest of this lap
+    /// if it has to - for the playhead to cross the point exactly four beats
+    /// from the wrap, and starts there. Four clicks, then bar one, and the
+    /// loop underneath never moves.
     private func armIfDue() {
         guard let startedAt else { return }
-        let beatsPerSecond = bpm / 60.0
-        let elapsed = (CACurrentMediaTime() - startedAt) * beatsPerSecond
+        let secondsPerBeat = 60.0 / bpm
+        let elapsed = (CACurrentMediaTime() - startedAt) / secondsPerBeat
         let remaining = totalBeats - elapsed.truncatingRemainder(dividingBy: totalBeats)
-        guard remaining <= 4 else { return }
-        let alreadyCounted = 4 - remaining
-        countStartedAt = CACurrentMediaTime() - alreadyCounted / beatsPerSecond
+        let previous = lastArmRemaining
+        lastArmRemaining = remaining
+        // One sample is needed before a crossing can be seen at all.
+        guard let previous else { return }
+        // Remaining counts down to zero and jumps back up at the wrap.
+        let wrapped = remaining > previous
+        let crossing = previous > 4 && remaining <= 4
+        // A one-bar loop is never more than four beats from its own wrap, so
+        // there the count starts at the wrap itself.
+        guard crossing || (wrapped && totalBeats <= 4) else { return }
+        let short = max(0, 4 - remaining)
+        countStartedAt = CACurrentMediaTime() - short * secondsPerBeat
         lastCountBeat = -1
         playThroughCount = true
         alignedCount = true
         DispatchQueue.main.async { [weak self] in
             guard let self, self.state == .playing, self.armed else { return }
             self.armed = false
-            self.countRemaining = Int(remaining.rounded(.up))
+            self.lastArmRemaining = nil
+            self.countRemaining = 4
             self.state = .countIn
         }
     }
