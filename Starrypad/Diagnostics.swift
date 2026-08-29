@@ -188,7 +188,7 @@ enum Diagnostics {
     /// Written with nothing but write(2) and a stack buffer, because anything
     /// that allocates can deadlock a process that is already dying.
     private static func recordSignal(_ number: Int32) {
-        var path = pathBytes
+        let path = pathBytes
         guard !path.isEmpty else { return }
         let descriptor = path.withUnsafeBufferPointer {
             open($0.baseAddress!, O_WRONLY | O_APPEND | O_CREAT, 0o644)
