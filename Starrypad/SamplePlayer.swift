@@ -38,10 +38,18 @@ final class SamplePlayer {
     /// costs milliseconds, which is a whole hit's worth of latency, so it
     /// happens once and not on the way to the speaker.
     private var derived: [String: AVAudioPCMBuffer] = [:]
-    private var nextVoice = 0
     /// Which sound each voice last took, parallel to voices. A sample that is
     /// already sounding is retriggered on the voice it is already on.
     private var voiceSources: [String?] = []
+    /// Whether each voice still has something sounding on it, and when it was
+    /// last started. A round robin hands out voices whether or not they are
+    /// free, which is how a long sample got cut off by the twenty-third hit
+    /// after it - hits that had nothing to do with it and no reason to stop
+    /// it. Idle voices are handed out first, and only when every one of them
+    /// is genuinely sounding does the oldest get taken.
+    private var voiceBusy: [Bool] = []
+    private var voiceStamp: [Int] = []
+    private var clock = 0
     /// What each voice is currently sounding, for choking. Parallel to voices.
     private var voiceGroups: [String?] = []
     private let format: AVAudioFormat
@@ -58,6 +66,8 @@ final class SamplePlayer {
         }
         voiceGroups = Array(repeating: nil, count: voices.count)
         voiceSources = Array(repeating: nil, count: voices.count)
+        voiceBusy = Array(repeating: false, count: voices.count)
+        voiceStamp = Array(repeating: 0, count: voices.count)
         // The last voice is not in the round robin. Auditions land on it and
         // nowhere else, so listening to a trim four times in a row is four
         // sounds one after another rather than four at once.
@@ -265,18 +275,47 @@ final class SamplePlayer {
         let index: Int
         if slot.source.isUser,
            let sounding = voiceSources.firstIndex(of: slot.source.key),
-           sounding < playable {
+           sounding < playable, voiceBusy[sounding] {
             index = sounding
         } else {
-            index = nextVoice
-            nextVoice = (nextVoice + 1) % playable
+            index = freeVoice()
         }
-        let voice = voices[index]
         voiceGroups[index] = slot.chokeGroup
         voiceSources[index] = slot.source.key
+        let voice = voices[index]
         voice.volume = Velocity.gain(velocity) * Float(slot.level)
         voice.pan = Float(max(-1, min(1, slot.pan)))
-        voice.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
+        schedule(buffer, on: index)
+    }
+
+    /// An idle voice if there is one, otherwise the one sounding longest.
+    private func freeVoice() -> Int {
+        var oldest = 0
+        for index in 0..<playable {
+            if !voiceBusy[index] { return index }
+            if voiceStamp[index] < voiceStamp[oldest] { oldest = index }
+        }
+        return oldest
+    }
+
+    /// Hand a buffer to a voice and remember that it is busy until it is not.
+    ///
+    /// The stamp is what makes the completion trustworthy: interrupting a
+    /// buffer calls its handler too, and without something to compare against,
+    /// the voice that had just been given new work would be marked idle.
+    private func schedule(_ buffer: AVAudioPCMBuffer, on index: Int) {
+        clock += 1
+        let generation = clock
+        voiceStamp[index] = generation
+        voiceBusy[index] = true
+        voices[index].scheduleBuffer(buffer, at: nil, options: .interrupts,
+                                     completionCallbackType: .dataPlayedBack) { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self, self.voiceStamp[index] == generation else { return }
+                self.voiceBusy[index] = false
+                self.voiceSources[index] = nil
+            }
+        }
     }
 
     /// Hear a sound without playing it: one at a time, replacing the last.
@@ -304,6 +343,7 @@ final class SamplePlayer {
             voices[index].play()
             voiceGroups[index] = nil
             voiceSources[index] = nil
+            voiceBusy[index] = false
         }
     }
 
@@ -319,11 +359,15 @@ final class SamplePlayer {
             buffers[key] = Self.clickBuffer(hertz: accent ? 1600 : 1000, as: format)
         }
         guard let buffer = buffers[key] else { return }
-        let voice = voices[nextVoice]
-        nextVoice = (nextVoice + 1) % voices.count
-        voice.volume = 0.55
-        voice.pan = 0
-        voice.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
+        // The click takes an idle voice like anything else. Walking a pointer
+        // through the pool meant a metronome running under a take chewed
+        // through every voice in the rack four times a bar.
+        let index = freeVoice()
+        voiceGroups[index] = nil
+        voiceSources[index] = nil
+        voices[index].volume = 0.55
+        voices[index].pan = 0
+        schedule(buffer, on: index)
     }
 
     private static func clickBuffer(hertz: Double, as format: AVAudioFormat) -> AVAudioPCMBuffer? {
