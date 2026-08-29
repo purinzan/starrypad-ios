@@ -130,35 +130,12 @@ final class SamplePlayer {
         }
     }
 
-    /// Whether the app's own sound is going somewhere the microphone can hear.
-    ///
-    /// Headphones, a USB interface or Bluetooth all put the output somewhere
-    /// the built-in mic cannot reach, so there is nothing to bleed. The phone's
-    /// own speaker is the only case that needs handling.
-    var outputCanBleedIntoMic: Bool {
-        AVAudioSession.sharedInstance().currentRoute.outputs
-            .contains { $0.portType == .builtInSpeaker || $0.portType == .builtInReceiver }
-    }
-
     /// Open the input route for the duration of a recording, then give it back.
     ///
     /// A category change can tear the engine down, so it is rebuilt after each
     /// one rather than assumed to have survived.
-    func beginRecordingRoute() {
-        restart(recording: true)
-        // Silence the pads rather than filter them out of the recording.
-        // Echo cancellation exists for this, but it is built for speech: it
-        // brings automatic gain and noise suppression with it and would leave
-        // every sample sounding processed. A sampler wants the microphone's
-        // actual signal, so the feedback path is removed instead of cleaned up
-        // afterwards - and only when there is one.
-        if outputCanBleedIntoMic { engine.mainMixerNode.outputVolume = 0 }
-    }
-
-    func endRecordingRoute() {
-        engine.mainMixerNode.outputVolume = 1
-        restart(recording: false)
-    }
+    func beginRecordingRoute() { restart(recording: true) }
+    func endRecordingRoute() { restart(recording: false) }
 
     private func restart(recording: Bool) {
         engine.stop()

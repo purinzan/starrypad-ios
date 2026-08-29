@@ -112,11 +112,8 @@ struct SamplerView: View {
                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Palette.rule, lineWidth: 1))
             }
 
-            Text(recorder.isRecording && player.outputCanBleedIntoMic
-                 ? "Pads are silent while the microphone is open, so they do not end up in the sample. Plug in headphones to keep playing."
-                 : "The first 30 seconds are taken; trim picks the part that plays.")
+            Text("The first 30 seconds are taken; trim picks the part that plays.")
                 .font(.system(size: 11)).foregroundStyle(Palette.ink3)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
