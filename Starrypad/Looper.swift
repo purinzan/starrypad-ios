@@ -318,9 +318,14 @@ final class Looper: ObservableObject {
         lastPosition = 0
         lastClickBeat = -1
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        // 4 ms is well under the shortest gap a person plays and far cheaper
-        // than waking for every frame.
-        timer.schedule(deadline: .now(), repeating: .milliseconds(4), leeway: .milliseconds(1))
+        // Every millisecond. The tick is what quantises everything the loop
+        // does - clicks, recorded hits, the handover - so its period is the
+        // error budget for all of them. At 4 ms a click could sit 4 ms from
+        // the note it is counting; at 1 ms nothing here is off by more than
+        // a millisecond, which is under any threshold worth arguing about.
+        // The work per tick is a comparison and a filter.
+        timer.schedule(deadline: .now(), repeating: .milliseconds(1),
+                       leeway: .microseconds(200))
         timer.setEventHandler { [weak self] in self?.tick() }
         timer.resume()
         self.timer = timer
@@ -397,6 +402,15 @@ final class Looper: ObservableObject {
     private func clickTick(at beats: Double) {
         let beat = Int(beats)
         guard beat != lastClickBeat else { return }
+        // Switching the click on halfway through a beat must not produce a
+        // click halfway through a beat. With nothing to compare against, take
+        // the beat silently and start on the next one - unless we are standing
+        // on a beat already, which is where the count hands the take over and
+        // the downbeat is owed a click.
+        if lastClickBeat == -1, beats - Double(beat) > 0.05 {
+            lastClickBeat = beat
+            return
+        }
         lastClickBeat = beat
         let accent = beat % 4 == 0
         DispatchQueue.main.async { [weak self] in self?.onClick?(accent) }
