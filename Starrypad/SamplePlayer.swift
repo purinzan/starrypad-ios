@@ -23,6 +23,12 @@ final class SamplePlayer {
     /// the same reason.
     private var makeup: Float = SamplePlayer.defaultMakeupDecibels
     private var voices: [AVAudioPlayerNode] = []
+    /// How many of them the pads may use. The rest are reserved.
+    private var playable = 1
+    /// Peaks are a scan of the whole file, and the trim view asks for them on
+    /// every frame of a drag. Scanning a thirty second import sixty times a
+    /// second is the difference between a smooth drag and a stuttering one.
+    private var peakCache: [String: [Float]] = [:]
     private var buffers: [String: AVAudioPCMBuffer] = [:]
     /// The same buffers with output gain already applied. A hit reads from
     /// here, so the multiply and the tanh happen once at load rather than on
@@ -48,6 +54,10 @@ final class SamplePlayer {
             voices.append(node)
         }
         voiceGroups = Array(repeating: nil, count: voices.count)
+        // The last voice is not in the round robin. Auditions land on it and
+        // nowhere else, so listening to a trim four times in a row is four
+        // sounds one after another rather than four at once.
+        playable = max(1, voices.count - 1)
         observeInterruptions()
     }
 
@@ -245,7 +255,21 @@ final class SamplePlayer {
         if let group = slot.chokeGroup { choke(group) }
         let voice = voices[nextVoice]
         voiceGroups[nextVoice] = slot.chokeGroup
-        nextVoice = (nextVoice + 1) % voices.count
+        nextVoice = (nextVoice + 1) % playable
+        voice.volume = Velocity.gain(velocity) * Float(slot.level)
+        voice.pan = Float(max(-1, min(1, slot.pan)))
+        voice.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
+    }
+
+    /// Hear a sound without playing it: one at a time, replacing the last.
+    ///
+    /// A preview is not a hit. Hits are meant to pile up - that is what a
+    /// drum kit is - but pressing Hear twice, or dragging a trim twice, is
+    /// one person asking one question twice, and answering it twice over the
+    /// top of itself makes the answer harder to hear, not easier. The reserved
+    /// voice takes the new buffer with .interrupts, which cuts the old one.
+    func audition(_ slot: PadSlot, velocity: Int) {
+        guard let voice = voices.last, let buffer = resolved(slot) else { return }
         voice.volume = Velocity.gain(velocity) * Float(slot.level)
         voice.pan = Float(max(-1, min(1, slot.pan)))
         voice.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
@@ -301,6 +325,8 @@ final class SamplePlayer {
 
     /// Peaks for drawing, at whatever resolution the view asks for.
     func peaks(for source: SoundSource, bins: Int) -> [Float] {
+        let cacheKey = "\(source.key)#\(bins)"
+        if let cached = peakCache[cacheKey] { return cached }
         guard let buffer = buffers[source.key], let data = buffer.floatChannelData else { return [] }
         let frames = Int(buffer.frameLength)
         guard frames > 0, bins > 0 else { return [] }
@@ -317,7 +343,9 @@ final class SamplePlayer {
             index += step
         }
         let loudest = out.max() ?? 1
-        return loudest > 0 ? out.map { $0 / loudest } : out
+        let normalised = loudest > 0 ? out.map { $0 / loudest } : out
+        peakCache[cacheKey] = normalised
+        return normalised
     }
 
     func seconds(of source: SoundSource) -> Double {
@@ -329,6 +357,11 @@ final class SamplePlayer {
     func invalidate(_ source: SoundSource) {
         for key in derived.keys where key.hasPrefix(source.key) {
             derived.removeValue(forKey: key)
+        }
+        // Trim and tune do not change the shape of the file, but a reassigned
+        // pad does, and the cheap thing is to drop them either way.
+        for key in peakCache.keys where key.hasPrefix(source.key) {
+            peakCache.removeValue(forKey: key)
         }
     }
 

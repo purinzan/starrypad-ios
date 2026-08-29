@@ -335,9 +335,13 @@ struct ContentView: View {
 
     private var videoPicker: some View {
         VideoPicker(
-            onPick: { url in
-                pickingVideo = false
-                Task { await importVideo(url) }
+            read: { url in
+                DispatchQueue.main.async {
+                    pickingVideo = false
+                    status = "Reading the video…"
+                }
+                let result = VideoImport.extractAudioBlocking(from: url)
+                DispatchQueue.main.async { finishVideoImport(result) }
             },
             onCancel: { pickingVideo = false }
         )
@@ -530,7 +534,7 @@ struct ContentView: View {
             MixerView(rack: rack, looper: looper, renaming: $renaming,
                       velocityFromForce: $velocityFromForce, force: force,
                       onTune: { player.invalidate(rack.slots[rack.selected].source) },
-                      onAudition: { strike(rack.slots[rack.selected], velocity: 110, record: false) })
+                      onAudition: { player.audition(rack.slots[rack.selected], velocity: 110) })
         case .sampler:
             samplerPanel
         }
@@ -541,8 +545,8 @@ struct ContentView: View {
                 rack: rack, recorder: recorder, player: player,
                 pending: $pendingSample, draft: $draft, status: $status,
                 onAssign: assignPending,
-                onPreview: { player.play(draft, velocity: 110) },
-                onPreviewSlot: { strike(rack.slots[rack.selected], velocity: 110, record: false) },
+                onPreview: { player.audition(draft, velocity: 110) },
+                onPreviewSlot: { player.audition(rack.slots[rack.selected], velocity: 110) },
                 onPickVideo: { pickingVideo = true },
                 onDiscard: { pendingSample = nil; status = nil }
         )
@@ -890,10 +894,11 @@ struct ContentView: View {
         panel = nil
     }
 
-    private func importVideo(_ url: URL) async {
-        status = "Reading the video…"
-        do {
-            let name = try await VideoImport.extractAudio(from: url)
+    private func finishVideoImport(_ result: Result<String, Error>) {
+        switch result {
+        case .failure(let error):
+            status = error.localizedDescription
+        case .success(let name):
             guard player.load(userSample: name) else {
                 status = "Could not read that recording"
                 return
@@ -902,10 +907,7 @@ struct ContentView: View {
             draft = PadSlot(id: rack.selected, source: .user(name: name),
                             label: "Video", hue: Palette.signal)
             status = nil
-        } catch {
-            status = error.localizedDescription
         }
-        try? FileManager.default.removeItem(at: url)
     }
 }
 

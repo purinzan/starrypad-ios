@@ -21,6 +21,26 @@ enum VideoImport {
         }
     }
 
+    /// The same thing, for a caller that must not return until it is done.
+    ///
+    /// The picker hands over a file that exists only for the length of its
+    /// callback, so the read happens there. Blocking is the point: it is a
+    /// background queue, and the alternative is copying a whole film out of
+    /// the photo library to keep it alive - gigabytes moved to take five
+    /// seconds of a song.
+    static func extractAudioBlocking(from url: URL, seconds limit: Double = 30)
+    -> Result<String, Error> {
+        let done = DispatchSemaphore(value: 0)
+        var outcome: Result<String, Error> = .failure(Failure.unreadable)
+        Task {
+            do { outcome = .success(try await extractAudio(from: url, seconds: limit)) }
+            catch { outcome = .failure(error) }
+            done.signal()
+        }
+        done.wait()
+        return outcome
+    }
+
     /// Decode the asset's audio to a 48 kHz mono wav in Recordings.
     ///
     /// Long videos are cut at the head rather than refused: a sampler wants a
@@ -94,7 +114,9 @@ enum VideoImport {
 
 /// The system video picker, as something a SwiftUI sheet can present.
 struct VideoPicker: UIViewControllerRepresentable {
-    var onPick: (URL) -> Void
+    /// Called on a background queue with the picked file, which exists only
+    /// for as long as this call. Read it here.
+    var read: (URL) -> Void
     var onCancel: () -> Void
 
     func makeUIViewController(context: Context) -> PHPickerViewController {
@@ -121,18 +143,17 @@ struct VideoPicker: UIViewControllerRepresentable {
                 parent.onCancel()
                 return
             }
-            // The picker hands over a copy in a temporary place that is cleaned
-            // up as soon as this callback returns, so the file is moved before
-            // anything else touches it.
+            // The file the picker hands over is cleaned up as soon as this
+            // callback returns, so the reading happens inside it. Copying it
+            // first is what made importing a long song expensive: the whole
+            // video came out of the library twice over to yield a few seconds
+            // of audio.
             provider.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { url, _ in
                 guard let url else {
                     DispatchQueue.main.async { self.parent.onCancel() }
                     return
                 }
-                let copy = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("pick-\(UUID().uuidString).\(url.pathExtension)")
-                try? FileManager.default.copyItem(at: url, to: copy)
-                DispatchQueue.main.async { self.parent.onPick(copy) }
+                self.parent.read(url)
             }
         }
     }
