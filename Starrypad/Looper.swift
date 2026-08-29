@@ -30,11 +30,17 @@ final class Looper: ObservableObject {
 
     @Published private(set) var state: State = .idle
     @Published private(set) var events: [Event] = []
-    @Published var bars: Int = 2 {
-        didSet { events = events.filter { $0.beat < totalBeats } }
+    @Published var bars: Int = UserDefaults.standard.object(forKey: "loop.bars") as? Int ?? 2 {
+        didSet {
+            events = events.filter { $0.beat < totalBeats }
+            UserDefaults.standard.set(bars, forKey: "loop.bars")
+        }
     }
-    @Published var bpm: Double = 120 {
-        didSet { reanchor(from: oldValue) }
+    @Published var bpm: Double = UserDefaults.standard.object(forKey: "loop.bpm") as? Double ?? 120 {
+        didSet {
+            reanchor(from: oldValue)
+            UserDefaults.standard.set(bpm, forKey: "loop.bpm")
+        }
     }
 
     /// Keep the playhead where it is when the tempo changes.

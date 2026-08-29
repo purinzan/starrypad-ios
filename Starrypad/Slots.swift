@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 /// Where a pad's sound comes from.
 ///
@@ -22,6 +23,12 @@ enum SoundSource: Equatable {
         case .builtIn(let file): return "kit:\(file)"
         case .user(let name): return "user:\(name)"
         }
+    }
+
+    init?(key: String) {
+        if key.hasPrefix("kit:") { self = .builtIn(file: String(key.dropFirst(4))) }
+        else if key.hasPrefix("user:") { self = .user(name: String(key.dropFirst(5))) }
+        else { return nil }
     }
 }
 
@@ -54,6 +61,61 @@ struct PadSlot: Identifiable {
     /// limit: that is what makes a kit sound like a kit.
     var voiceLimit: Int?
 
+    /// The slot as stored. Colour is the only field that is not already a
+    /// number, and it is kept as its components rather than looked up again:
+    /// a pad that has been given a recording is not the kit piece it replaced,
+    /// and there is nothing to look it up from.
+    struct Record: Codable {
+        var id: Int
+        var source: String
+        var label: String
+        var hue: [Double]
+        var level: Double
+        var pan: Double
+        var tune: Int
+        var muted: Bool
+        var start: Double
+        var end: Double
+        var chokeGroup: String?
+        var voiceLimit: Int?
+    }
+
+    var record: Record {
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        UIColor(hue).getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        return Record(id: id, source: source.key, label: label,
+                      hue: [red, green, blue, alpha].map(Double.init),
+                      level: level, pan: pan, tune: tune, muted: muted,
+                      start: start, end: end,
+                      chokeGroup: chokeGroup, voiceLimit: voiceLimit)
+    }
+
+    init?(_ record: Record) {
+        guard let source = SoundSource(key: record.source), record.hue.count == 4 else {
+            return nil
+        }
+        self.id = record.id
+        self.source = source
+        self.label = record.label
+        self.hue = Color(red: record.hue[0], green: record.hue[1],
+                         blue: record.hue[2], opacity: record.hue[3])
+        self.level = record.level
+        self.pan = record.pan
+        self.tune = record.tune
+        self.muted = record.muted
+        self.start = record.start
+        self.end = record.end
+        self.chokeGroup = record.chokeGroup
+        self.voiceLimit = record.voiceLimit
+    }
+
+    init(id: Int, source: SoundSource, label: String, hue: Color) {
+        self.id = id
+        self.source = source
+        self.label = label
+        self.hue = hue
+    }
+
     var bank: Int { id / Banks.padCount }
     var positionInBank: Int { id % Banks.padCount }
     var isTrimmed: Bool { start > 0.0001 || end < 0.9999 }
@@ -79,6 +141,34 @@ enum Banks {
 
     static func saveTitles(_ titles: [String]) {
         UserDefaults.standard.set(titles, forKey: titlesKey)
+    }
+
+    private static let slotsKey = "rack.slots"
+
+    static func saveSlots(_ slots: [PadSlot]) {
+        guard let data = try? JSONEncoder().encode(slots.map(\.record)) else { return }
+        UserDefaults.standard.set(data, forKey: slotsKey)
+    }
+
+    /// The rack as it was left, or nil if there is nothing to restore.
+    ///
+    /// A saved pad whose recording has since been deleted comes back as the
+    /// sound that shipped in that position: silent pads are indistinguishable
+    /// from broken ones, and the file is genuinely gone.
+    static func loadSlots() -> [PadSlot]? {
+        guard let data = UserDefaults.standard.data(forKey: slotsKey),
+              let records = try? JSONDecoder().decode([PadSlot.Record].self, from: data),
+              records.count == slotCount else { return nil }
+        let shipped = initialSlots()
+        return records.enumerated().map { index, record in
+            guard var slot = PadSlot(record), slot.id == index else { return shipped[index] }
+            if case .user(let name) = slot.source,
+               !FileManager.default.fileExists(atPath: Recordings.url(for: name).path) {
+                return shipped[index]
+            }
+            slot.id = index
+            return slot
+        }
     }
 
     /// A is the acoustic kit, B the electronic one. C and D start as copies of
@@ -120,9 +210,29 @@ final class Rack: ObservableObject {
         bankTitles[index] = trimmed.isEmpty ? Banks.defaultTitles[index] : trimmed
     }
 
-    @Published var slots: [PadSlot] = Banks.initialSlots()
+    @Published var slots: [PadSlot] = Banks.loadSlots() ?? Banks.initialSlots() {
+        didSet { scheduleSave() }
+    }
     @Published var bank: Int = 0
     @Published var selected: Int = 0
+
+    /// Writing 64 pads out on every change would mean writing them on every
+    /// frame of a trim drag. A short delay collapses a gesture into one write,
+    /// and going to the background forces whatever is outstanding.
+    private var pendingSave: DispatchWorkItem?
+
+    private func scheduleSave() {
+        pendingSave?.cancel()
+        let save = DispatchWorkItem { [slots] in Banks.saveSlots(slots) }
+        pendingSave = save
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: save)
+    }
+
+    func saveNow() {
+        pendingSave?.cancel()
+        pendingSave = nil
+        Banks.saveSlots(slots)
+    }
     @Published var soloed: Set<Int> = []
 
     /// Whole-rack snapshots, one per edit. A pad edit is small and rare, so

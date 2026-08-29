@@ -22,7 +22,8 @@ struct ContentView: View {
     @State private var draft = PadSlot(id: 0, source: .builtIn(file: ""), label: "", hue: .clear)
     @State private var status: String?
     @State private var pickingVideo = false
-    @State private var master = Double(SamplePlayer.defaultMakeupDecibels)
+    @AppStorage("master.decibels")
+    private var master = Double(SamplePlayer.defaultMakeupDecibels)
     @State private var learning = false
     /// Every finger currently down, keyed by touch.
     @State private var presses: [Int: Press] = [:]
@@ -113,7 +114,11 @@ struct ContentView: View {
         .preferredColorScheme(.dark)
         .onAppear(perform: begin)
         .onChange(of: scenePhase) { _, phase in
-            guard phase == .active else { return }
+            guard phase == .active else {
+                // Leaving is the last chance to write anything still pending.
+                rack.saveNow()
+                return
+            }
             player.activateSession(reason: "scene active")
         }
     }
@@ -685,12 +690,19 @@ struct ContentView: View {
 
     private func begin() {
         loaded = player.preload(Kit.all)
+        // Pads restored from the last session point at recordings that are not
+        // loaded yet, and a pad that makes no sound is a pad you think is
+        // broken.
+        for slot in rack.slots {
+            if case .user(let name) = slot.source { _ = player.load(userSample: name) }
+        }
         // Kept even though it is no longer on screen: it is the number that
         // decides whether this feels like an instrument, and it belongs in the
         // log when someone says the app feels slow.
         print(String(format: "output latency %.2f ms", player.outputLatencyMilliseconds))
         player.activateSession(reason: "launch")
         player.start()
+        player.makeupDecibels = Float(master)
         looper.onClick = { accent in player.click(accent: accent) }
         looper.onFire = { slotID, velocity in
             guard rack.slots.indices.contains(slotID) else { return }
