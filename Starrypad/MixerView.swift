@@ -1,180 +1,151 @@
 import SwiftUI
 
-/// Level, pan and tune for the selected pad, plus mute and solo.
+/// Level, pan and tune for the selected pad, plus mute, solo and touch.
 ///
-/// One pad at a time rather than sixteen strips: a phone has no room for a
-/// console, and the pad you are editing is the one you just hit.
+/// One pad at a time, and everything on one screen. It used to be a column of
+/// full-width sliders that ran past the bottom, which is the wrong shape for a
+/// mixer twice over: you scrolled to reach half the controls, and you could not
+/// see what you had set without scrolling back. Three knobs side by side hold
+/// the same three values in a third of the height, and they read like the panel
+/// they sit on. Master and tempo left entirely - they belong next to the pads,
+/// not behind a tab.
 struct MixerView: View {
     @ObservedObject var rack: Rack
-    @Binding var master: Double
     @Binding var renaming: Bool
     @Binding var velocityFromForce: Bool
     @ObservedObject var force: StrikeForce
-    @ObservedObject var looper: Looper
-    @FocusState private var nameFocused: Bool
     var onTune: () -> Void
     var onAudition: () -> Void
-    var onMaster: () -> Void
+
+    @FocusState private var nameFocused: Bool
 
     private var slot: PadSlot { rack.slots[rack.selected] }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(Banks.label(for: rack.selected))
-                    .font(.system(size: 15, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Palette.accent)
-                if renaming {
-                    TextField("Name", text: Binding(
-                        get: { rack.slots[rack.selected].label },
-                        set: { rack.rename(rack.selected, to: $0) }
-                    ))
-                    .font(.system(size: 15))
-                    .foregroundStyle(Palette.ink)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($nameFocused)
-                    .submitLabel(.done)
-                    .onSubmit { renaming = false }
-                    .onAppear { nameFocused = true }
-                } else {
-                    Text(slot.label).font(.system(size: 15)).foregroundStyle(Palette.ink)
-                        .lineLimit(1)
-                }
-                Spacer()
-                Button {
-                    renaming.toggle()
-                } label: {
-                    Image(systemName: renaming ? "checkmark" : "pencil")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(renaming ? Palette.accent : Palette.ink2)
-                        .frame(width: 30, height: 30)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                Button("Hear", action: onAudition)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Palette.ink)
-                    .buttonStyle(.plain)
+        VStack(alignment: .leading, spacing: 10) {
+            header
+            knobs
+            buttons
+            touch
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            Text(Banks.label(for: rack.selected))
+                .font(.system(size: 15, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Palette.accent)
+
+            if renaming {
+                TextField("Name", text: Binding(
+                    get: { rack.slots[rack.selected].label },
+                    set: { rack.rename(rack.selected, to: $0) }
+                ))
+                .font(.system(size: 15))
+                .textFieldStyle(.roundedBorder)
+                .focused($nameFocused)
+                .submitLabel(.done)
+                .onSubmit { renaming = false }
+                .onAppear { nameFocused = true }
+            } else {
+                Text(slot.label)
+                    .font(.system(size: 15)).foregroundStyle(Palette.ink)
+                    .lineLimit(1)
             }
 
-            knobRow("MASTER", value: String(format: "%+.0f dB", master)) {
-                Slider(value: $master, in: 0...12, step: 0.5,
-                       onEditingChanged: { editing in if !editing { onMaster() } })
-                    .tint(Palette.danger)
-            }
+            Spacer(minLength: 4)
 
-            // Tempo lives here as well as on the pads screen: it belongs to
-            // the whole instrument, not to the page you happen to be on.
-            knobRow("TEMPO", value: "\(Int(looper.bpm)) BPM") {
-                Slider(value: $looper.bpm, in: 40...240, step: 1)
-                    .tint(Palette.accent)
+            Button { renaming.toggle() } label: {
+                Image(systemName: renaming ? "checkmark" : "pencil")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(renaming ? Palette.accent : Palette.ink2)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
 
-            knobRow("LEVEL", value: String(format: "%.0f%%", slot.level * 100)) {
-                Slider(value: Binding(
-                    get: { rack.slots[rack.selected].level },
-                    set: { rack.slots[rack.selected].level = $0 }
-                ), in: 0...1.5)
-                .tint(Palette.accent)
-            }
-
-            knobRow("PAN", value: panLabel(slot.pan)) {
-                Slider(value: Binding(
-                    get: { rack.slots[rack.selected].pan },
-                    set: { rack.slots[rack.selected].pan = $0 }
-                ), in: -1...1)
-                .tint(Palette.signal)
-            }
-
-            knobRow("TUNE", value: "\(slot.tune >= 0 ? "+" : "")\(slot.tune) st") {
-                Slider(
-                    value: Binding(
-                        get: { Double(rack.slots[rack.selected].tune) },
-                        set: { rack.slots[rack.selected].tune = Int($0.rounded()) }
-                    ),
-                    in: -12...12, step: 1,
-                    onEditingChanged: { editing in if !editing { onTune() } }
-                )
-                .tint(Palette.signal)
-            }
-
-            HStack(spacing: 8) {
-                toggle("Mute", on: slot.muted, tint: Palette.danger) {
-                    rack.toggleMute(rack.selected)
-                }
-                toggle("Solo", on: rack.soloed.contains(rack.selected), tint: Palette.accent) {
-                    rack.toggleSolo(rack.selected)
-                }
-                toggle("Reset", on: false, tint: Palette.ink2) {
-                    rack.slots[rack.selected].level = 1
-                    rack.slots[rack.selected].pan = 0
-                    rack.slots[rack.selected].tune = 0
-                    onTune()
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("TOUCH").font(.system(size: 10, weight: .semibold)).kerning(1.4)
-                        .foregroundStyle(Palette.ink3)
-                    Spacer()
-                    Text(force.available
-                         ? String(format: "%.3f g -> %d  (top %.2f)",
-                                  force.lastPeak, force.lastVelocity, force.ceiling)
-                         : "no sensor")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(force.lastVelocity > 0 ? Palette.signal : Palette.ink3)
-                }
-                Picker("", selection: $velocityFromForce) {
-                    Text("How hard").tag(true)
-                    Text("Where you hit").tag(false)
-                }
-                .pickerStyle(.segmented)
-                .disabled(!force.available)
-                Text(force.available
-                     ? "The scale learns itself: the hardest hit so far is full velocity, and it settles back down as you play softer."
-                     : "This device reports no motion, so velocity comes from where on the pad you hit.")
-                    .font(.system(size: 11)).foregroundStyle(Palette.ink3)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if !rack.soloed.isEmpty {
-                Text("\(rack.soloed.count) pad\(rack.soloed.count == 1 ? "" : "s") soloed — everything else is silent")
-                    .font(.system(size: 11)).foregroundStyle(Palette.accent)
+            Button(action: onAudition) {
+                ArtButton(label: "Hear", hue: Palette.accent, on: false, minHeight: 28)
+                    .frame(width: 56)
             }
         }
     }
 
-    private func knobRow<Control: View>(
-        _ title: String, value: String, @ViewBuilder control: () -> Control
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(title).font(.system(size: 10, weight: .semibold)).kerning(1.4)
-                    .foregroundStyle(Palette.ink3)
-                Spacer()
-                Text(value).font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(Palette.ink)
+    private var knobs: some View {
+        HStack(spacing: 0) {
+            ArtKnob(
+                value: Binding(get: { rack.slots[rack.selected].level },
+                               set: { rack.slots[rack.selected].level = $0 }),
+                range: 0...1.5, tint: Palette.accent, caption: "LEVEL", diameter: 40,
+                reading: String(format: "%.0f%%", slot.level * 100)
+            )
+            .frame(maxWidth: .infinity)
+
+            ArtKnob(
+                value: Binding(get: { rack.slots[rack.selected].pan },
+                               set: { rack.slots[rack.selected].pan = $0 }),
+                range: -1...1, tint: Palette.signal, caption: "PAN", diameter: 40,
+                reading: panLabel(slot.pan)
+            )
+            .frame(maxWidth: .infinity)
+
+            ArtKnob(
+                value: Binding(get: { Double(rack.slots[rack.selected].tune) },
+                               set: { rack.slots[rack.selected].tune = Int($0.rounded()) }),
+                range: -12...12, tint: Palette.signal, caption: "TUNE", diameter: 40,
+                reading: "\(slot.tune >= 0 ? "+" : "")\(slot.tune) st",
+                onCommit: onTune
+            )
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private var buttons: some View {
+        HStack(spacing: 6) {
+            Button { rack.toggleMute(rack.selected) } label: {
+                ArtButton(label: "Mute", hue: Palette.danger, on: slot.muted, minHeight: 32)
             }
-            control()
+            Button { rack.toggleSolo(rack.selected) } label: {
+                ArtButton(label: "Solo", hue: Palette.accent,
+                          on: rack.soloed.contains(rack.selected), minHeight: 32)
+            }
+            Button {
+                rack.slots[rack.selected].level = 1
+                rack.slots[rack.selected].pan = 0
+                rack.slots[rack.selected].tune = 0
+                onTune()
+            } label: {
+                ArtButton(label: "Reset", hue: Palette.ink2, on: false, minHeight: 32)
+            }
+        }
+    }
+
+    /// Where velocity comes from, and what the sensor reads right now, on one
+    /// line - it is a setting you check while playing, not a paragraph.
+    private var touch: some View {
+        HStack(spacing: 8) {
+            Text("TOUCH").font(.system(size: 9, weight: .semibold)).kerning(1.3)
+                .foregroundStyle(Palette.ink3)
+
+            Button { if force.available { velocityFromForce.toggle() } } label: {
+                ArtButton(label: velocityFromForce ? "How hard" : "Where you hit",
+                          hue: Palette.accent, on: velocityFromForce,
+                          enabled: force.available, minHeight: 28)
+                    .frame(width: 116)
+            }
+
+            Spacer(minLength: 4)
+
+            Text(force.available
+                 ? String(format: "%.3f g \u{2192} %d", force.lastPeak, force.lastVelocity)
+                 : "no sensor")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(force.lastVelocity > 0 ? Palette.signal : Palette.ink3)
         }
     }
 
     private func panLabel(_ pan: Double) -> String {
         if abs(pan) < 0.02 { return "centre" }
         return "\(pan < 0 ? "L" : "R")\(Int(abs(pan) * 100))"
-    }
-
-    private func toggle(_ label: String, on: Bool, tint: Color, act: @escaping () -> Void)
-        -> some View {
-        Button(action: act) {
-            Text(label)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(on ? Palette.onAccent : Palette.ink)
-                .frame(maxWidth: .infinity).padding(.vertical, 10)
-                .background(RoundedRectangle(cornerRadius: 7).fill(on ? tint : Palette.panel))
-                .overlay(RoundedRectangle(cornerRadius: 7)
-                    .strokeBorder(on ? tint : Palette.rule, lineWidth: 1))
-        }
     }
 }

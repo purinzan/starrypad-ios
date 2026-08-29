@@ -62,7 +62,7 @@ struct ContentView: View {
                     // banks, grid, bar, tempo and picker take about 600 points
                     // of 874, and a panel taller than what is left pushes the
                     // header off the top of the phone.
-                    .frame(maxHeight: screen == .play ? 56 : 224)
+                    .frame(maxHeight: screen == .play ? 56 : 270)
             }
         }
         .padding(14)
@@ -93,7 +93,10 @@ struct ContentView: View {
         // The grid is the instrument. A tall panel below it was squeezing the
         // pads down to a few pixels and letting the loop bar overlap them, so
         // it keeps its room and the panel scrolls inside what is left.
-        .frame(minHeight: 260, maxHeight: .infinity)
+        // The pads yield a little while a panel is open and take it back on
+        // the play screen: editing wants the panel whole, playing wants the
+        // grid whole, and neither wants a scroll bar.
+        .frame(minHeight: screen == .play ? 226 : 192, maxHeight: .infinity)
     }
 
     private var pickingBinding: Binding<PadTarget?> {
@@ -233,11 +236,10 @@ struct ContentView: View {
         case .play:
             transport
         case .mix:
-            MixerView(rack: rack, master: $master, renaming: $renaming,
-                      velocityFromForce: $velocityFromForce, force: force, looper: looper,
+            MixerView(rack: rack, renaming: $renaming,
+                      velocityFromForce: $velocityFromForce, force: force,
                       onTune: { player.invalidate(rack.slots[rack.selected].source) },
-                      onAudition: { strike(rack.slots[rack.selected], velocity: 110, record: false) },
-                      onMaster: { player.makeupDecibels = Float(master) })
+                      onAudition: { strike(rack.slots[rack.selected], velocity: 110, record: false) })
         case .sample:
             SamplerView(
                 rack: rack, recorder: recorder, player: player,
@@ -254,8 +256,13 @@ struct ContentView: View {
     /// Tempo, which the count-in and the loop both run on.
     private var tempoRow: some View {
         HStack(spacing: 8) {
-            ArtKnob(value: (looper.bpm - 40) / 200, tint: Palette.accent,
+            ArtKnob(value: $looper.bpm, range: 40...240, tint: Palette.accent,
                     caption: "TEMPO", reading: "\(Int(looper.bpm))")
+            // Master sits beside tempo because they are the two things you
+            // reach for without leaving the pads.
+            ArtKnob(value: $master, range: 0...12, tint: Palette.danger,
+                    caption: "MASTER", reading: String(format: "%+.0f dB", master),
+                    onCommit: { player.makeupDecibels = Float(master) })
             Spacer()
             tempoButton("-") { looper.bpm = max(40, looper.bpm - 1) }
             tempoButton("+") { looper.bpm = min(240, looper.bpm + 1) }

@@ -137,13 +137,32 @@ struct ArtButton: View {
     }
 }
 
-/// A knob: the moulded body, with the pointer rotated to the value.
+/// A knob: the moulded body, the pointer rotated to the value, and a vertical
+/// drag to turn it.
+///
+/// Up and down rather than a circular gesture, because a real knob is turned
+/// between finger and thumb and a phone has one contact point - tracing an arc
+/// on glass is a party trick, and every hardware app that tried it went back
+/// to dragging.
 struct ArtKnob: View {
-    var value: Double             // 0...1
+    @Binding var value: Double
+    var range: ClosedRange<Double>
     var tint: Color
     var caption: String
+    var diameter: CGFloat = 46
     var reading: String
-    var diameter: CGFloat = 44
+    var onCommit: () -> Void = {}
+
+    @State private var startValue: Double?
+
+    /// How far the finger travels to cross the whole range. Short enough to
+    /// reach the ends without a second grab, long enough to place a value.
+    private let travel: CGFloat = 160
+
+    private var fraction: Double {
+        let span = range.upperBound - range.lowerBound
+        return span > 0 ? (value - range.lowerBound) / span : 0
+    }
 
     var body: some View {
         VStack(spacing: 4) {
@@ -159,15 +178,33 @@ struct ArtKnob: View {
                     // The pointer art is empty below its own centre, so the
                     // canvas centre is the pivot and rotation needs no offset.
                     .frame(width: diameter, height: diameter)
-                    .rotationEffect(.degrees(-135 + 270 * max(0, min(1, value))))
+                    .rotationEffect(.degrees(-135 + 270 * max(0, min(1, fraction))))
                     .shadow(color: tint.opacity(0.6), radius: 3)
             }
+            // A knob is small; the grab area is not.
+            .frame(width: diameter + 16, height: diameter + 16)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { drag in
+                        let from = startValue ?? value
+                        if startValue == nil { startValue = value }
+                        let span = range.upperBound - range.lowerBound
+                        let delta = Double(-drag.translation.height / travel) * span
+                        value = min(range.upperBound, max(range.lowerBound, from + delta))
+                    }
+                    .onEnded { _ in
+                        startValue = nil
+                        onCommit()
+                    }
+            )
+
             Text(caption)
                 .font(.system(size: 8, weight: .semibold)).kerning(1)
                 .foregroundStyle(Color(white: 0.44))
             Text(reading)
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundStyle(Color(white: 0.84))
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(Color(white: 0.86))
         }
     }
 }
@@ -195,7 +232,7 @@ struct ArtBezel<Content: View>: View {
     var body: some View {
         content
             .padding(.horizontal, 24)
-            .padding(.vertical, 20)
+            .padding(.vertical, 16)
             .background(
                 Panel.art("bezel")
                     .resizable(capInsets: Panel.Slice.bezel, resizingMode: .stretch)
