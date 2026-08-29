@@ -15,6 +15,8 @@ final class MIDIInput: ObservableObject {
 
     /// Note number and velocity for every note on, on the main queue.
     var onNote: ((UInt8, UInt8) -> Void)?
+    /// Called when what is plugged in changes, so it can be written down.
+    var onSources: (([String]) -> Void)?
     var onNoteOff: ((UInt8) -> Void)?
 
     @Published private(set) var sourceNames: [String] = []
@@ -54,6 +56,7 @@ final class MIDIInput: ObservableObject {
             names.append(Self.name(of: source))
         }
         sourceNames = names
+        onSources?(names)
     }
 
     private func handle(_ eventList: UnsafePointer<MIDIEventList>) {

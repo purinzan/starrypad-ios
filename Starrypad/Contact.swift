@@ -42,6 +42,13 @@ enum Contact {
         """
     }
 
+    /// The diagnostic log, as an attachment. Optional on purpose: it goes only
+    /// if the person leaves it on, and they can read every line first.
+    static var logAttachment: (data: Data, name: String)? {
+        guard let data = Diagnostics.report().data(using: .utf8) else { return nil }
+        return (data, "starrypad-log.txt")
+    }
+
     private static var model: String {
         var info = utsname()
         uname(&info)
@@ -69,6 +76,7 @@ enum Contact {
 /// The system mail composer, prefilled.
 struct MailComposer: UIViewControllerRepresentable {
     let midi: String?
+    var attachLog: Bool
     var onFinish: () -> Void
 
     func makeUIViewController(context: Context) -> MFMailComposeViewController {
@@ -77,6 +85,10 @@ struct MailComposer: UIViewControllerRepresentable {
         controller.setToRecipients([Contact.address])
         controller.setSubject(Contact.subject)
         controller.setMessageBody(Contact.body(midi: midi), isHTML: false)
+        if attachLog, let attachment = Contact.logAttachment {
+            controller.addAttachmentData(attachment.data, mimeType: "text/plain",
+                                         fileName: attachment.name)
+        }
         return controller
     }
 

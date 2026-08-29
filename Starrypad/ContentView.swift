@@ -140,6 +140,7 @@ struct ContentView: View {
             guard phase == .active else {
                 // Leaving is the last chance to write anything still pending.
                 rack.saveNow()
+                Diagnostics.end()
                 return
             }
             player.activateSession(reason: "scene active")
@@ -809,7 +810,9 @@ struct ContentView: View {
     // MARK: - Wiring
 
     private func begin() {
+        Diagnostics.begin()
         loaded = player.preload(Kit.all)
+        Diagnostics.log("キット読み込み: \(loaded) 音")
         // Pads restored from the last session point at recordings that are not
         // loaded yet, and a pad that makes no sound is a pad you think is
         // broken.
@@ -827,6 +830,9 @@ struct ContentView: View {
         looper.onFire = { slotID, velocity in
             guard rack.slots.indices.contains(slotID) else { return }
             strike(rack.slots[slotID], velocity: velocity, record: false)
+        }
+        midi.onSources = { names in
+            Diagnostics.log("MIDI: \(names.isEmpty ? "接続なし" : names.joined(separator: ", "))")
         }
         midi.onNote = { note, velocity in
             // Never drop a hit: NoteMap always answers with a pad.
@@ -1071,8 +1077,10 @@ struct ContentView: View {
                                       bpm: looper.bpm, slots: rack.slots)
             }
             exported = ExportedFile(url: url)
+            Diagnostics.log("書き出し成功: \(url.lastPathComponent)")
         } catch {
             status = error.localizedDescription
+            Diagnostics.log("書き出し失敗: \(error.localizedDescription)")
         }
     }
 

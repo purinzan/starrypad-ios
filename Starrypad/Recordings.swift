@@ -147,6 +147,7 @@ final class Recorder: NSObject, ObservableObject {
             return true
         } catch {
             Self.log.error("recorder: \(error.localizedDescription)")
+            Diagnostics.log("録音を開始できません: \(error.localizedDescription)")
             return false
         }
     }

@@ -17,6 +17,10 @@ struct CreditsView: View {
     /// broken.
     @State private var composing = false
     @State private var note: String?
+    /// On by default, because the report is the difference between "音が出ない"
+    /// and a cause - but visible, revocable, and readable in full first.
+    @State private var attachLog = true
+    @State private var showingLog = false
 
     var body: some View {
         ScrollView {
@@ -48,6 +52,43 @@ struct CreditsView: View {
                         .strokeBorder(Palette.rule, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle(isOn: $attachLog) {
+                        Text("診断ログを添付する")
+                            .font(.system(size: 13))
+                            .foregroundStyle(Palette.ink2)
+                    }
+                    .tint(Palette.accent)
+
+                    Button {
+                        showingLog.toggle()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(showingLog ? "閉じる" : "送る内容を見る")
+                            Image(systemName: showingLog ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 10, weight: .semibold))
+                        }
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Palette.accent)
+                    }
+                    .buttonStyle(.plain)
+
+                    if showingLog {
+                        ScrollView {
+                            Text(Diagnostics.report())
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(Palette.ink2)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(10)
+                        }
+                        .frame(height: 200)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Palette.ground))
+                        .overlay(RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(Palette.rule, lineWidth: 1))
+                    }
+                }
 
                 if let note {
                     Text(note)
@@ -87,7 +128,7 @@ struct CreditsView: View {
         }
         .background(Palette.ground)
         .sheet(isPresented: $composing) {
-            MailComposer(midi: midiSource) { composing = false }
+            MailComposer(midi: midiSource, attachLog: attachLog) { composing = false }
                 .ignoresSafeArea()
         }
     }

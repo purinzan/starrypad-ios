@@ -117,12 +117,14 @@ final class SamplePlayer {
                   let type = AVAudioSession.InterruptionType(rawValue: raw) else { return }
             switch type {
             case .began:
+                Diagnostics.log("オーディオ中断: 開始")
                 self.engine.pause()
             case .ended:
                 let options = (note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt)
                     .map(AVAudioSession.InterruptionOptions.init(rawValue:)) ?? []
                 // iOS says whether it expects us back; asking anyway is how you
                 // end up fighting whatever interrupted you.
+                Diagnostics.log("オーディオ中断: 終了 (再開\(options.contains(.shouldResume) ? "可" : "不可"))")
                 guard options.contains(.shouldResume) else { return }
                 self.configureSession(recording: self.recordingRoute, reason: "interruption ended")
                 self.engine.stop()
@@ -135,6 +137,7 @@ final class SamplePlayer {
         centre.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification,
                            object: session, queue: .main) { [weak self] _ in
             guard let self else { return }
+            Diagnostics.log("メディアサービスがリセットされました")
             self.engine.stop()
             self.configureSession(recording: self.recordingRoute, reason: "media services reset")
             self.start()
@@ -239,6 +242,7 @@ final class SamplePlayer {
             guard let url = Self.bundleURL(for: pad.file),
                   let buffer = Self.buffer(at: url, as: format) else {
                 Self.log.error("missing sample: \(pad.file)")
+                Diagnostics.log("音源が見つかりません: \(pad.file)")
                 continue
             }
             buffers[key] = buffer
@@ -273,6 +277,7 @@ final class SamplePlayer {
             // the rest of the session is the worst possible answer, so it tries
             // again shortly rather than giving up.
             Self.log.error("engine start: \(error.localizedDescription, privacy: .public)")
+            Diagnostics.log("オーディオ開始に失敗: \(error.localizedDescription)")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
                 guard let self, !self.engine.isRunning else { return }
                 self.configureSession(recording: false)
@@ -280,6 +285,7 @@ final class SamplePlayer {
                     try self.engine.start()
                 } catch {
                     Self.log.error("engine retry: \(error.localizedDescription, privacy: .public)")
+                    Diagnostics.log("オーディオ再試行に失敗: \(error.localizedDescription)")
                     return
                 }
                 for voice in self.voices { voice.play() }
