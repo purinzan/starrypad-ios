@@ -112,8 +112,6 @@ struct SamplerView: View {
                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Palette.rule, lineWidth: 1))
             }
 
-            Text("The first 30 seconds are taken; trim picks the part that plays.")
-                .font(.system(size: 11)).foregroundStyle(Palette.ink3)
         }
     }
 

@@ -485,14 +485,20 @@ struct ContentView: View {
         let on: Bool
 
         var body: some View {
-            ArtButton(label: panel.rawValue, hue: Palette.accent, on: on,
-                      minHeight: PerformanceSpec.panelButtonHeight, fontSize: 17)
-                .overlay(alignment: .leading) {
-                    Image(systemName: panel == .mixer ? "slider.horizontal.3" : "waveform")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(on ? Palette.onAccent : Palette.ink)
-                        .padding(.leading, 16)
-                        .allowsHitTesting(false)
+            // The icon travels with the word as one centred group. Pinned to
+            // the leading edge it made the label read as off-centre, which on
+            // a pair of buttons side by side is the first thing you notice.
+            ArtButton(label: "", hue: Palette.accent, on: on,
+                      minHeight: PerformanceSpec.panelButtonHeight)
+                .overlay {
+                    HStack(spacing: 8) {
+                        Image(systemName: panel == .mixer ? "slider.horizontal.3" : "waveform")
+                            .font(.system(size: 16, weight: .semibold))
+                        Text(panel.rawValue)
+                            .font(.system(size: 17, weight: .semibold))
+                    }
+                    .foregroundStyle(on ? .black.opacity(0.85) : Color(white: 0.80))
+                    .allowsHitTesting(false)
                 }
                 .padding(.vertical, 2)
         }
