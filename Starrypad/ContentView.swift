@@ -527,7 +527,7 @@ struct ContentView: View {
     private func panelBody(_ which: Panel) -> some View {
         switch which {
         case .mixer:
-            MixerView(rack: rack, renaming: $renaming,
+            MixerView(rack: rack, looper: looper, renaming: $renaming,
                       velocityFromForce: $velocityFromForce, force: force,
                       onTune: { player.invalidate(rack.slots[rack.selected].source) },
                       onAudition: { strike(rack.slots[rack.selected], velocity: 110, record: false) })
@@ -572,9 +572,10 @@ struct ContentView: View {
     private var transport: some View {
         HStack(spacing: PerformanceSpec.transportGap) {
             transportButton(
-                looper.state == .countIn ? "\(looper.countRemaining)" : "Rec",
+                looper.state == .countIn ? "\(looper.countRemaining)"
+                : looper.armed ? "Cue" : "Rec",
                 tint: Palette.danger,
-                on: looper.state == .recording || looper.state == .countIn,
+                on: looper.state == .recording || looper.state == .countIn || looper.armed,
                 minHeight: PerformanceSpec.primaryTransportHeight,
                 width: PerformanceSpec.primaryTransportWidth,
                 fontSize: 20

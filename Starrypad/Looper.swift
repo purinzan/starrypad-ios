@@ -65,6 +65,19 @@ final class Looper: ObservableObject {
     /// Beats left in the count-in, for the transport to show.
     @Published private(set) var countRemaining = 0
 
+    /// Keep clicking all the way through the take, not just the count.
+    ///
+    /// Off by default: a click under everything you play is a rehearsal-room
+    /// habit, not a thing everyone wants. On, it is the same click the count
+    /// uses, on every beat, accented on the bar.
+    @Published var clickThrough = UserDefaults.standard.bool(forKey: "click.through") {
+        didSet { UserDefaults.standard.set(clickThrough, forKey: "click.through") }
+    }
+
+    /// Record has been asked for while the loop is playing, and is waiting for
+    /// the bar line to come round.
+    @Published private(set) var armed = false
+
     /// Where the bar should draw its playhead, 0 to 1, published every frame
     /// while anything is running.
     ///
@@ -106,6 +119,10 @@ final class Looper: ObservableObject {
     private var startedAt: CFTimeInterval?
     private var countStartedAt: CFTimeInterval?
     private var playThroughCount = false
+    /// The count was placed against the loop rather than started from cold, so
+    /// the handover must not restart the clock.
+    private var alignedCount = false
+    private var lastClickBeat = -1
     private var lastCountBeat = -1
     private var lastSweepAt: CFTimeInterval = 0
     private var lastPosition: Double = 0
@@ -132,11 +149,17 @@ final class Looper: ObservableObject {
             // was already there is touched.
             stop()
         case .playing:
-            // Recording again counts in too, and the take that follows starts
-            // at bar one. The tempo does not move: it is the same clock, and
-            // what you already recorded keeps playing through the count.
-            pushHistory()
-            beginCountIn(keepPlaying: true)
+            // Not now - on the bar. Dropping into a count the instant the
+            // button is pressed cuts the music in half wherever your thumb
+            // happened to land. Instead the loop keeps running, the count
+            // starts a bar before the wrap, and recording begins on beat one
+            // with nothing about the sound having changed.
+            if armed {
+                armed = false                // pressed twice: never mind
+            } else {
+                pushHistory()
+                armed = true
+            }
         case .idle:
             pushHistory()
             beginCountIn(keepPlaying: false)
@@ -152,6 +175,7 @@ final class Looper: ObservableObject {
     private func beginCountIn(keepPlaying: Bool) {
         countRemaining = 4
         lastCountBeat = -1
+        alignedCount = false
         playThroughCount = keepPlaying && !events.isEmpty
         state = .countIn
         // One clock either way: the count reads its own start time, and the
@@ -186,6 +210,9 @@ final class Looper: ObservableObject {
         startedAt = nil
         countStartedAt = nil
         playThroughCount = false
+        alignedCount = false
+        armed = false
+        lastClickBeat = -1
         lastPosition = 0
         countRemaining = 0
         lastCountBeat = -1
@@ -285,6 +312,7 @@ final class Looper: ObservableObject {
         timer = nil
         startedAt = CACurrentMediaTime()
         lastPosition = 0
+        lastClickBeat = -1
         let timer = DispatchSource.makeTimerSource(queue: queue)
         // 4 ms is well under the shortest gap a person plays and far cheaper
         // than waking for every frame.
@@ -296,6 +324,7 @@ final class Looper: ObservableObject {
 
     private func tick() {
         publishSweep()
+        if armed, state == .playing { armIfDue() }
         if state == .countIn {
             countInTick()
             // A count over an existing take still plays it, so the scheduler
@@ -305,6 +334,7 @@ final class Looper: ObservableObject {
         let now = position
         let previous = lastPosition
         lastPosition = now
+        if state == .recording, clickThrough { clickTick(at: now) }
         guard !events.isEmpty else { return }
 
         // The window is normally tiny and forward; at the loop point it wraps,
@@ -320,6 +350,40 @@ final class Looper: ObservableObject {
             guard let self, let onFire = self.onFire else { return }
             for event in due { onFire(event.padID, event.velocity) }
         }
+    }
+
+    /// Start the count a bar before the loop comes round, placed so its last
+    /// beat is the beat before the wrap.
+    ///
+    /// The count is not started from now; it is anchored backwards to where it
+    /// would have begun, so the four clicks land on the four beats already in
+    /// progress. Nothing about the playing loop moves.
+    private func armIfDue() {
+        guard let startedAt else { return }
+        let beatsPerSecond = bpm / 60.0
+        let elapsed = (CACurrentMediaTime() - startedAt) * beatsPerSecond
+        let remaining = totalBeats - elapsed.truncatingRemainder(dividingBy: totalBeats)
+        guard remaining <= 4 else { return }
+        let alreadyCounted = 4 - remaining
+        countStartedAt = CACurrentMediaTime() - alreadyCounted / beatsPerSecond
+        lastCountBeat = -1
+        playThroughCount = true
+        alignedCount = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.state == .playing, self.armed else { return }
+            self.armed = false
+            self.countRemaining = Int(remaining.rounded(.up))
+            self.state = .countIn
+        }
+    }
+
+    /// One click per beat under the take, accented on the bar.
+    private func clickTick(at beats: Double) {
+        let beat = Int(beats)
+        guard beat != lastClickBeat else { return }
+        lastClickBeat = beat
+        let accent = beat % 4 == 0
+        DispatchQueue.main.async { [weak self] in self?.onClick?(accent) }
     }
 
     /// The count runs on its own clock so the take can start at beat zero
@@ -349,9 +413,17 @@ final class Looper: ObservableObject {
             self.countStartedAt = nil
             self.playThroughCount = false
             self.state = .recording
-            // Restart the loop clock so the take begins at bar one, beat one -
-            // the beat right after the fourth click.
-            self.begin()
+            // An aligned count was laid over a loop that never stopped, and
+            // the wrap it was counting towards has just happened on its own.
+            // Restarting the clock here is what would move the music.
+            if self.alignedCount {
+                self.alignedCount = false
+                self.lastClickBeat = -1
+            } else {
+                // Restart the loop clock so the take begins at bar one, beat
+                // one - the beat right after the fourth click.
+                self.begin()
+            }
         }
     }
 
