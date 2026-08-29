@@ -102,7 +102,6 @@ struct ContentView: View {
         static let bankHeight: CGFloat = 40
         static let bankRadius: CGFloat = 8
         static let bankIndicatorHeight: CGFloat = 2
-        static let learnWidth: CGFloat = 72
         static let midiDot: CGFloat = 8
         static let knobDiameter: CGFloat = 44
         static let deckDividerHeight: CGFloat = 56
@@ -253,8 +252,7 @@ struct ContentView: View {
             ShareSheet(url: file.url)
         }
         .sheet(isPresented: $showingSettings) {
-            SettingsView(looper: looper, force: force,
-                         velocityFromForce: $velocityFromForce, player: player)
+            settingsSheet
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
@@ -532,23 +530,30 @@ struct ContentView: View {
                     .strokeBorder(Palette.rule.opacity(0.9), lineWidth: 1)
             )
             .clipShape(RoundedRectangle(cornerRadius: PerformanceSpec.bankRadius))
-
-            Button {
-                if learning {
-                    notes.cancelLearning()
-                    learning = false
-                    status = nil
-                } else {
-                    notes.beginLearning()
-                    learning = true
-                }
-            } label: {
-                ArtButton(label: learning ? "Cancel" : "Learn",
-                          hue: Palette.danger, on: learning,
-                          minHeight: PerformanceSpec.bankHeight - 4)
-                    .frame(width: PerformanceSpec.learnWidth)
-            }
         }
+    }
+
+    private var settingsSheet: some View {
+        SettingsView(looper: looper, force: force,
+                     velocityFromForce: $velocityFromForce, player: player,
+                     midiSource: midi.sourceNames.first,
+                     layout: notes.source.rawValue,
+                     hasLearned: notes.hasLearned,
+                     onLearn: {
+                         showingSettings = false
+                         beginLearning()
+                     })
+    }
+
+    private func beginLearning() {
+        notes.beginLearning()
+        status = nil
+        learning = true
+    }
+
+    private func cancelLearning() {
+        notes.cancelLearning()
+        learning = false
     }
 
     private struct BankSegment: View {
@@ -618,6 +623,11 @@ struct ContentView: View {
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(Palette.ink2)
             }
+            // The banner is the only place this mode is visible, so it is
+            // also the way out of it.
+            Button("やめる") { cancelLearning() }
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Palette.danger)
         }
         .padding(.horizontal, 12).padding(.vertical, 9)
         .background(RoundedRectangle(cornerRadius: 7).fill(Palette.panel))

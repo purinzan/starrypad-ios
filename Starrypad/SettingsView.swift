@@ -11,16 +11,42 @@ struct SettingsView: View {
     @ObservedObject var force: StrikeForce
     @Binding var velocityFromForce: Bool
     var player: SamplePlayer
+    var midiSource: String?
+    var layout: String
+    var hasLearned: Bool
+    var onLearn: () -> Void
 
     @State private var clickVolume: Double
 
     init(looper: Looper, force: StrikeForce,
-         velocityFromForce: Binding<Bool>, player: SamplePlayer) {
+         velocityFromForce: Binding<Bool>, player: SamplePlayer,
+         midiSource: String?, layout: String, hasLearned: Bool,
+         onLearn: @escaping () -> Void) {
         self.looper = looper
         self.force = force
         self._velocityFromForce = velocityFromForce
         self.player = player
+        self.midiSource = midiSource
+        self.layout = layout
+        self.hasLearned = hasLearned
+        self.onLearn = onLearn
         self._clickVolume = State(initialValue: Double(player.clickVolume))
+    }
+
+    /// What the app is doing about the controller's layout, in one line.
+    ///
+    /// Most controllers need nothing: a 4x4 pad grid sends a contiguous block
+    /// of notes and the app reads it straight off. Learning exists for the
+    /// ones that do not, which is why it lives here rather than beside the
+    /// banks - a permanent button for a once-per-controller errand, on a
+    /// screen most people use with no controller at all.
+    private var layoutNote: String {
+        guard midiSource != nil else {
+            return "クラスコンプライアントの USB MIDI 機器をつなぐと、ここに名前が出ます。"
+        }
+        if hasLearned { return "この機器の並びは学習済みです。" }
+        return "並びは推定中（\(layout)）。ほとんどの機器はこれで合います。"
+            + "パッドの順番が違うときだけ学習してください。"
     }
 
     var body: some View {
@@ -47,6 +73,15 @@ struct SettingsView: View {
                         Toggle("", isOn: $looper.clickThrough).labelsHidden()
                     }
                     slider("音量", value: $clickVolume) { player.clickVolume = Float($0) }
+                }
+
+                group("MIDI コントローラー") {
+                    row(midiSource ?? "接続されていません", note: layoutNote) {
+                        Button("並びを学習") { onLearn() }
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(midiSource == nil ? Palette.ink3 : Palette.accent)
+                            .disabled(midiSource == nil)
+                    }
                 }
 
                 group("録音") {
