@@ -58,8 +58,11 @@ struct PadMenu: View {
             Divider().padding(.leading, 46)
             row("Change sound", systemImage: "waveform", action: onChangeSound)
             Divider().padding(.leading, 46)
-            row("Reset pad", systemImage: "arrow.counterclockwise",
-                tint: .red, action: onReset)
+            // Not red. Red means recording in this app, and a menu item that
+            // borrows it to mean "careful" leaves the two indistinguishable at
+            // a glance. What makes this safe is the question it asks, not its
+            // colour.
+            row("Reset pad", systemImage: "arrow.counterclockwise", action: onReset)
         }
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
         .overlay(

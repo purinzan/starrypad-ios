@@ -9,9 +9,29 @@ struct LoopBar: View {
     @ObservedObject var looper: Looper
 
     var body: some View {
-        // No TimelineView: the looper publishes the sweep, so the bar redraws
-        // because the value changed rather than because SwiftUI felt like it.
-        Group {
+        VStack(alignment: .leading, spacing: 4) {
+            // The strip already cost the height; saying nothing with it was
+            // the waste. Length, which pass, and where in the bar.
+            HStack(spacing: 0) {
+                Text("LOOP ").font(.system(size: 9, weight: .semibold)).kerning(1.1)
+                    .foregroundStyle(Palette.ink3)
+                Text("\(looper.bars) bar\(looper.bars == 1 ? "" : "s")")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Palette.ink2)
+                Spacer()
+                if looper.state != .idle {
+                    Text("pass ").font(.system(size: 9, weight: .semibold)).kerning(1.1)
+                        .foregroundStyle(Palette.ink3)
+                    Text("\(looper.passNumber)")
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Palette.ink2)
+                }
+                Spacer()
+                Text(looper.barBeatText)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(looper.state == .countIn ? Palette.danger : Palette.ink)
+            }
+
             GeometryReader { geometry in
                 let width = geometry.size.width
                 let total = looper.totalBeats
@@ -24,6 +44,14 @@ struct LoopBar: View {
                             .fill(downbeat ? Palette.rule : Palette.ruleSoft)
                             .frame(width: 1)
                             .offset(x: width * CGFloat(Double(beat) / total))
+                    }
+                    // A bar you cannot count is a bar you cannot aim at.
+                    ForEach(0..<looper.bars, id: \.self) { bar in
+                        Text("\(bar + 1)")
+                            .font(.system(size: 8, weight: .medium, design: .monospaced))
+                            .foregroundStyle(Palette.ink3)
+                            .offset(x: width * CGFloat(Double(bar * 4) / total) + 3, y: 2)
+                            .frame(maxHeight: .infinity, alignment: .top)
                     }
 
                     ForEach(looper.events) { event in
@@ -60,9 +88,9 @@ struct LoopBar: View {
                     }
                 }
             }
+            .frame(height: 30)
+            .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(Palette.rule, lineWidth: 1))
         }
-        .frame(height: 34)
-        .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(Palette.rule, lineWidth: 1))
     }
 }
 

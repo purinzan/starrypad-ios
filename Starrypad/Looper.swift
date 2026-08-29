@@ -77,6 +77,25 @@ final class Looper: ObservableObject {
     var totalBeats: Double { Double(bars * 4) }
     var canUndo: Bool { !events.isEmpty || !history.isEmpty }
 
+    /// Bar, beat and sixteenth, the way a sequencer says where it is.
+    var barBeatText: String {
+        guard state != .idle else { return "\u{2013}" }
+        if state == .countIn { return "\(countRemaining)" }
+        let beats = position
+        let bar = Int(beats / 4) + 1
+        let beat = Int(beats.truncatingRemainder(dividingBy: 4)) + 1
+        let sixteenth = Int((beats * 4).truncatingRemainder(dividingBy: 4)) + 1
+        return "\(bar).\(beat).\(sixteenth)"
+    }
+
+    /// Which time round the loop is playing, for the bar to show what an undo
+    /// would take off.
+    var passNumber: Int {
+        guard let startedAt, state != .idle else { return 0 }
+        let beats = (CACurrentMediaTime() - startedAt) * bpm / 60.0
+        return max(0, Int(beats / totalBeats)) + 1
+    }
+
     /// How many times round the loop has gone since recording started.
     private var currentPass: Int {
         guard let startedAt else { return 0 }

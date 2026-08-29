@@ -83,6 +83,23 @@ final class Rack: ObservableObject {
     @Published var selected: Int = 0
     @Published var soloed: Set<Int> = []
 
+    /// Whole-rack snapshots, one per edit. A pad edit is small and rare, so
+    /// keeping the lot is cheaper than working out what changed - and it means
+    /// undo covers swaps, resets, sound changes and trims without any of them
+    /// having to know about it.
+    private var history: [[PadSlot]] = []
+    var canUndo: Bool { !history.isEmpty }
+
+    private func remember() {
+        history.append(slots)
+        if history.count > 30 { history.removeFirst() }
+    }
+
+    func undoEdit() {
+        guard let previous = history.popLast() else { return }
+        slots = previous
+    }
+
     /// The sixteen slots the grid is showing, bottom left first like the pads.
     var visible: [PadSlot] {
         let base = bank * Banks.padCount
@@ -113,6 +130,7 @@ final class Rack: ObservableObject {
     /// Rename a pad. For a recording the name belongs to the sample, so it
     /// follows it onto any other pad; a kit sound is only renamed where it sits.
     func rename(_ id: Int, to name: String) {
+        remember()
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         slots[id].label = trimmed
@@ -128,6 +146,7 @@ final class Rack: ObservableObject {
     /// Swap two pads outright: the sound and everything set about it move
     /// together, because a pad is what you hear, not where it sits.
     func swap(_ first: Int, _ second: Int) {
+        remember()
         guard first != second,
               slots.indices.contains(first), slots.indices.contains(second) else { return }
         let a = slots[first], b = slots[second]
@@ -153,6 +172,7 @@ final class Rack: ObservableObject {
     /// Everything: the sound, the mix, the trim, the tuning, the name. A reset
     /// that leaves the level at 40% is not a reset, it is a surprise later.
     func reset(_ id: Int) {
+        remember()
         guard slots.indices.contains(id) else { return }
         slots[id] = Banks.initialSlots()[id]
         soloed.remove(id)
@@ -160,6 +180,7 @@ final class Rack: ObservableObject {
 
     /// Put a chosen sound on a slot, leaving its mix alone.
     func setSound(_ source: SoundSource, label: String, on id: Int) {
+        remember()
         slots[id].source = source
         slots[id].label = label
         switch source {
@@ -189,6 +210,7 @@ final class Rack: ObservableObject {
 
     /// Put a freshly made recording on a slot, with the region just chosen.
     func assign(_ name: String, label: String, start: Double, end: Double, to id: Int) {
+        remember()
         Recordings.setTrim(start: start, end: end, for: name)
         slots[id].source = .user(name: name)
         slots[id].label = label

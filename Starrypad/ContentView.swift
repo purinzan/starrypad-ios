@@ -14,7 +14,7 @@ struct ContentView: View {
     @State private var notes = NoteMap()
     @State private var lastNote: UInt8?
 
-    @State private var screen: Screen = .play
+    @State private var panel: Panel?
     @State private var pendingSample: String?
     @State private var draft = PadSlot(id: 0, source: .builtIn(file: ""), label: "", hue: .clear)
     @State private var status: String?
@@ -33,6 +33,12 @@ struct ContentView: View {
     /// The pad whose menu is open, and where on screen it sits.
     @State private var menuFor: Int?
     @State private var menuAnchor: CGRect = .zero
+    /// The pad a reset has been asked for but not yet confirmed.
+    @State private var resetting: Int?
+    /// The hint currently owed, and where the thing it describes sits.
+    @State private var hint: Hint?
+    @State private var hintAnchor: CGRect = .zero
+    @State private var deckFrame: CGRect = .zero
     /// A pad lifted off the grid and following the finger, as on the home
     /// screen: the menu opens on the hold, and dragging out of it picks the
     /// pad up instead.
@@ -50,7 +56,12 @@ struct ContentView: View {
 
     private let holdSeconds = 0.45
 
-    private enum Screen: String, CaseIterable { case play = "Pads", mix = "Mixer", sample = "Sampler" }
+    /// The panels are summoned, not resident. There is no "Pads" screen to
+    /// go back to, because the pads never went anywhere.
+    enum Panel: String, Identifiable, CaseIterable {
+        case mixer = "Mixer", sampler = "Sampler"
+        var id: String { rawValue }
+    }
 
     /// Pad 0 is bottom left, so the grid is drawn from the top row down.
     private var rows: [[PadSlot]] {
@@ -59,23 +70,23 @@ struct ContentView: View {
     }
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
             header
             bankRow
             if learning { learnBanner }
+            // The square grid leaves about 100 points over. Split above and
+            // below rather than pooled at the bottom, so the pads sit where
+            // your hand already is instead of riding the top edge.
+            Spacer(minLength: 0)
             padGrid
-
-            ArtSlot(height: 46) { LoopBar(looper: looper) }
-            tempoRow
-            screenPicker
-            ArtBezel {
-                ScrollView(.vertical, showsIndicators: false) { detail }
-                    // Budgeted against the screen rather than guessed: header,
-                    // banks, grid, bar, tempo and picker take about 600 points
-                    // of 874, and a panel taller than what is left pushes the
-                    // header off the top of the phone.
-                    .frame(maxHeight: screen == .play ? 56 : 270)
-            }
+            Spacer(minLength: 0)
+            ArtSlot(height: 62) { LoopBar(looper: looper) }
+            deck
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear.onAppear { deckFrame = proxy.frame(in: .global) }
+                    }
+                )
         }
         .padding(14)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -95,8 +106,46 @@ struct ContentView: View {
             .allowsHitTesting(false)
         }
         .overlay { if let menuFor { padMenu(for: menuFor) } }
+        .overlay {
+            if let hint {
+                HintBubble(hint: hint, anchor: hintAnchor) {
+                    hint.markSeen()
+                    withAnimation(.easeOut(duration: 0.18)) { self.hint = nil }
+                    // One at a time, and only after the last was acknowledged.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { offerHint() }
+                }
+            }
+        }
         .sheet(item: pickingBinding) { target in soundPicker(for: target.id) }
         .sheet(isPresented: $pickingVideo) { videoPicker }
+        // The only thing in the app that asks. Everything else is undoable,
+        // and asking about undoable things is how people learn to dismiss
+        // dialogs without reading them.
+        .confirmationDialog(
+            resetting.map { "Reset \(Banks.label(for: $0))?" } ?? "",
+            isPresented: Binding(get: { resetting != nil },
+                                 set: { if !$0 { resetting = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Reset the pad", role: .destructive) {
+                guard let slotID = resetting else { return }
+                rack.reset(slotID)
+                player.invalidate(rack.slots[slotID].source)
+                status = "\(Banks.label(for: slotID)) reset"
+                resetting = nil
+            }
+            Button("Cancel", role: .cancel) { resetting = nil }
+        } message: {
+            Text("The sound, level, pan, tune, trim and name all go back to how the app shipped.")
+        }
+        .sheet(item: $panel) { which in
+            ArtBezel { panelBody(which) }
+                .padding(14)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .background(PanelGround())
+                .presentationDetents([.height(which == .mixer ? 372 : 470), .large])
+                .presentationDragIndicator(.visible)
+        }
     }
 
     private var padGrid: some View {
@@ -109,6 +158,7 @@ struct ContentView: View {
                     .frame(maxHeight: .infinity)
                 }
             }
+            .frame(width: grid.size.width, height: grid.size.width)
             .onAppear {
                 gridSize = grid.size
                 gridOrigin = grid.frame(in: .global).origin
@@ -121,13 +171,11 @@ struct ContentView: View {
                 PadTouches(onDown: touchDown, onMove: touchMoved, onUp: touchUp)
             )
         }
-        // The grid is the instrument. A tall panel below it was squeezing the
-        // pads down to a few pixels and letting the loop bar overlap them, so
-        // it keeps its room and the panel scrolls inside what is left.
-        // The pads yield a little while a panel is open and take it back on
-        // the play screen: editing wants the panel whole, playing wants the
-        // grid whole, and neither wants a scroll bar.
-        .frame(minHeight: screen == .play ? 226 : 192, maxHeight: .infinity)
+        // Square, which fixes the height at whatever the width is - 374 points
+        // on this phone, gaps included. Demanding squares is what stops the
+        // pads being the thing that gets shaved whenever anything else is
+        // added: there is nothing left to negotiate away.
+        .aspectRatio(1, contentMode: .fit)
     }
 
     /// The pad under the finger, drawn above everything and following it.
@@ -157,7 +205,7 @@ struct ContentView: View {
             onRename: {
                 closeMenu()
                 rack.selected = slotID
-                screen = .mix
+                panel = .mixer
                 renaming = true
             },
             onChangeSound: {
@@ -167,9 +215,7 @@ struct ContentView: View {
             },
             onReset: {
                 closeMenu()
-                rack.reset(slotID)
-                player.invalidate(rack.slots[slotID].source)
-                status = "\(Banks.label(for: slotID)) reset"
+                resetting = slotID
             },
             onDismiss: closeMenu
         )
@@ -227,21 +273,31 @@ struct ContentView: View {
     // MARK: - Chrome
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Panel.art("nameplate").resizable().scaledToFit().frame(height: 24)
+        HStack(alignment: .center, spacing: 8) {
+            Circle()
+                .fill(midi.sourceNames.isEmpty ? Palette.ink3 : Palette.signal)
+                .frame(width: 7, height: 7)
+            VStack(alignment: .leading, spacing: 1) {
                 Text(midi.sourceNames.first ?? "No MIDI in")
-                    .font(.system(size: 12))
-                    .foregroundStyle(midi.sourceNames.isEmpty ? Palette.ink3 : Palette.signal)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(midi.sourceNames.isEmpty ? Palette.ink3 : Palette.ink)
                     .lineLimit(1)
                 if let lastNote {
-                    Text("note \(lastNote) · \(notes.source.rawValue)")
-                        .font(.system(size: 10, design: .monospaced))
+                    Text("note \(lastNote) \u{00b7} \(notes.source.rawValue)")
+                        .font(.system(size: 9, design: .monospaced))
                         .foregroundStyle(Palette.ink3)
                 }
             }
-            Spacer()
-            readout("Vel", lastVelocity > 0 ? "\(lastVelocity)" : "—", accent: true)
+            Spacer(minLength: 4)
+            // Modes, not destinations: pressing one opens a panel over the
+            // instrument and closing it puts you back where you were playing.
+            ForEach(Panel.allCases) { which in
+                Button { panel = which } label: {
+                    ArtButton(label: which.rawValue, hue: Palette.accent,
+                              on: panel == which, minHeight: 28)
+                        .frame(width: which == .mixer ? 62 : 74)
+                }
+            }
         }
     }
 
@@ -304,28 +360,15 @@ struct ContentView: View {
         .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Palette.danger, lineWidth: 1))
     }
 
-    private var screenPicker: some View {
-        HStack(spacing: 6) {
-            ForEach(Screen.allCases, id: \.self) { option in
-                Button { screen = option } label: {
-                    ArtButton(label: option.rawValue, hue: Palette.accent,
-                              on: option == screen, minHeight: 34)
-                }
-            }
-        }
-    }
-
     @ViewBuilder
-    private var detail: some View {
-        switch screen {
-        case .play:
-            transport
-        case .mix:
+    private func panelBody(_ which: Panel) -> some View {
+        switch which {
+        case .mixer:
             MixerView(rack: rack, renaming: $renaming,
                       velocityFromForce: $velocityFromForce, force: force,
                       onTune: { player.invalidate(rack.slots[rack.selected].source) },
                       onAudition: { strike(rack.slots[rack.selected], velocity: 110, record: false) })
-        case .sample:
+        case .sampler:
             SamplerView(
                 rack: rack, recorder: recorder, player: player,
                 pending: $pendingSample, draft: $draft, status: $status,
@@ -338,47 +381,23 @@ struct ContentView: View {
         }
     }
 
-    /// Tempo, which the count-in and the loop both run on.
-    private var tempoRow: some View {
-        HStack(spacing: 8) {
+    /// Tempo and master beside the transport, which is where they sit on the
+    /// machine this borrows from - and which costs one row instead of two.
+    private var deck: some View {
+        HStack(alignment: .center, spacing: 10) {
             ArtKnob(value: $looper.bpm, range: 40...240, tint: Palette.accent,
-                    caption: "TEMPO", reading: "\(Int(looper.bpm))")
-            // Master sits beside tempo because they are the two things you
-            // reach for without leaving the pads.
+                    caption: "TEMPO", diameter: 42, reading: "\(Int(looper.bpm))")
             ArtKnob(value: $master, range: 0...12, tint: Palette.danger,
-                    caption: "MASTER", reading: String(format: "%+.0f dB", master),
+                    caption: "MASTER", diameter: 42,
+                    reading: String(format: "%+.0f", master),
                     onCommit: { player.makeupDecibels = Float(master) })
-            Spacer()
-            tempoButton("-") { looper.bpm = max(40, looper.bpm - 1) }
-            tempoButton("+") { looper.bpm = min(240, looper.bpm + 1) }
-            tempoButton("Tap", wide: true) { tapTempo() }
+            Rectangle().fill(Palette.rule).frame(width: 1, height: 48)
+            transport
         }
-    }
-
-    private func tempoButton(_ label: String, wide: Bool = false, act: @escaping () -> Void)
-        -> some View {
-        Button(action: act) {
-            ArtButton(label: label, hue: Palette.accent, on: false, minHeight: 30)
-                .frame(width: wide ? 56 : 42)
-        }
-    }
-
-    /// Tempo from the gaps between taps, averaged, with a stale tap starting
-    /// a new count rather than dragging the average somewhere silly.
-    private func tapTempo() {
-        let now = Date().timeIntervalSince1970
-        if let last = taps.last, now - last > 2 { taps.removeAll() }
-        taps.append(now)
-        if taps.count > 5 { taps.removeFirst() }
-        guard taps.count >= 2 else { return }
-        let gaps = zip(taps, taps.dropFirst()).map { $1 - $0 }
-        let average = gaps.reduce(0, +) / Double(gaps.count)
-        guard average > 0 else { return }
-        looper.bpm = max(40, min(240, (60.0 / average).rounded()))
     }
 
     private var transport: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 5) {
             transportButton(
                 looper.state == .countIn ? "\(looper.countRemaining)" : "Rec",
                 tint: Palette.danger,
@@ -389,13 +408,15 @@ struct ContentView: View {
             transportButton("Play", tint: Palette.accent, on: looper.state == .playing) {
                 looper.togglePlay()
             }
-            transportButton("\(looper.bars)B", tint: Palette.ink2, on: false) {
-                looper.bars = looper.bars >= 4 ? 1 : looper.bars * 2
+            transportButton("Undo", tint: Palette.ink2, on: false,
+                            enabled: looper.canUndo || rack.canUndo) {
+                // The loop first: while you are playing into it, that is what
+                // "undo" means. Pad edits come back once there is nothing left
+                // to peel off the take.
+                if looper.canUndo { looper.undo() } else { rack.undoEdit() }
             }
-            transportButton("Undo", tint: Palette.ink2, on: false, enabled: looper.canUndo) {
-                looper.undo()
-            }
-            transportButton("Clear", tint: Palette.ink2, on: false, enabled: !looper.events.isEmpty) {
+            transportButton("Clear", tint: Palette.ink2, on: false,
+                            enabled: !looper.events.isEmpty) {
                 looper.clear()
             }
         }
@@ -484,6 +505,27 @@ struct ContentView: View {
         }
         midi.start()
         force.start()
+        // After the first frame, so the anchors are real rather than zero.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { offerHint() }
+    }
+
+    /// Show the next hint that is still owed, pointed at its own control.
+    private func offerHint() {
+        guard hint == nil, let next = Hint.next else { return }
+        switch next {
+        case .hold:
+            guard gridSize.width > 0 else { return }
+            hintAnchor = cellFrame(for: rack.bank * Banks.padCount + 5)
+        case .knob:
+            guard deckFrame.width > 0 else { return }
+            hintAnchor = CGRect(x: deckFrame.minX, y: deckFrame.minY,
+                                width: 110, height: deckFrame.height)
+        case .waveform:
+            // Only worth saying once there is a waveform to drag.
+            guard panel == .sampler else { return }
+            hintAnchor = .zero
+        }
+        withAnimation(.easeOut(duration: 0.22)) { hint = next }
     }
 
     /// One finger's worth of press, so two fingers do not share one set of
@@ -646,7 +688,7 @@ struct ContentView: View {
                     start: draft.start, end: draft.end, to: target)
         pendingSample = nil
         status = "\(draft.label) is on \(Banks.label(for: target))"
-        screen = .play
+        panel = nil
     }
 
     private func importVideo(_ url: URL) async {
