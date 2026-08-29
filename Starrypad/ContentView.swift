@@ -100,8 +100,6 @@ struct ContentView: View {
         static let hairline: CGFloat = 1
         static let panelButtonHeight: CGFloat = 46
         static let bankHeight: CGFloat = 40
-        static let bankRadius: CGFloat = 8
-        static let bankIndicatorHeight: CGFloat = 2
         static let midiDot: CGFloat = 8
         static let knobDiameter: CGFloat = 44
         static let deckDividerHeight: CGFloat = 56
@@ -494,42 +492,28 @@ struct ContentView: View {
         .frame(minWidth: 56, alignment: .leading)
     }
 
+    /// Four buttons, not one control cut into four.
+    ///
+    /// A segmented control says "pick one of these views"; a bank is a place
+    /// you put a kit, and on every machine this borrows from it is a lit
+    /// button of its own. They are the same chiclets as the transport, which
+    /// is what makes them read as hardware rather than as a form field.
     private var bankRow: some View {
-        HStack(spacing: PerformanceSpec.sectionGap) {
-            HStack(spacing: 0) {
-                ForEach(0..<Banks.count, id: \.self) { index in
-                    Button { rack.selectBank(index) } label: {
-                        BankSegment(index: index, title: rack.bankTitles[index],
-                                    selected: index == rack.bank)
-                    }
-                    // Hold to rename, the same gesture that renames a pad.
-                    .simultaneousGesture(
-                        LongPressGesture(minimumDuration: 0.45).onEnded { _ in
-                            bankDraft = rack.bankTitles[index]
-                            renamingBank = index
-                        }
-                    )
-                    if index < Banks.count - 1 {
-                        Rectangle().fill(Palette.rule.opacity(0.75)).frame(width: 1)
-                    }
+        HStack(spacing: 6) {
+            ForEach(0..<Banks.count, id: \.self) { index in
+                Button { rack.selectBank(index) } label: {
+                    ArtButton(label: "\(Banks.names[index])  \(rack.bankTitles[index])",
+                              hue: Palette.accent, on: index == rack.bank,
+                              minHeight: PerformanceSpec.bankHeight)
                 }
+                // Hold to rename, the same gesture that renames a pad.
+                .simultaneousGesture(
+                    LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                        bankDraft = rack.bankTitles[index]
+                        renamingBank = index
+                    }
+                )
             }
-            .frame(height: PerformanceSpec.bankHeight)
-            .background(
-                RoundedRectangle(cornerRadius: PerformanceSpec.bankRadius)
-                    .fill(
-                        LinearGradient(
-                            colors: [Palette.panel2.opacity(0.78),
-                                     Palette.ground.opacity(0.92)],
-                            startPoint: .top, endPoint: .bottom
-                        )
-                    )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: PerformanceSpec.bankRadius)
-                    .strokeBorder(Palette.rule.opacity(0.9), lineWidth: 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: PerformanceSpec.bankRadius))
         }
     }
 
@@ -554,36 +538,6 @@ struct ContentView: View {
     private func cancelLearning() {
         notes.cancelLearning()
         learning = false
-    }
-
-    private struct BankSegment: View {
-        let index: Int
-        let title: String
-        let selected: Bool
-
-        var body: some View {
-            Text("\(Banks.names[index]) \(title)")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(selected ? Palette.accent : Palette.ink2)
-                .lineLimit(1)
-                .minimumScaleFactor(0.62)
-                .padding(.horizontal, 5)
-                .frame(maxWidth: .infinity, minHeight: PerformanceSpec.bankHeight)
-                .background(
-                    LinearGradient(
-                        colors: selected
-                        ? [Palette.accentSoft.opacity(0.95), Palette.panel.opacity(0.25)]
-                        : [.white.opacity(0.025), .black.opacity(0.10)],
-                        startPoint: .top, endPoint: .bottom
-                    )
-                )
-                .overlay(alignment: .bottom) {
-                    Rectangle()
-                        .fill(selected ? Palette.accent : .clear)
-                        .frame(height: PerformanceSpec.bankIndicatorHeight)
-                        .padding(.horizontal, 8)
-                }
-        }
     }
 
     private struct PerformancePanelButton: View {
