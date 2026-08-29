@@ -66,6 +66,7 @@ struct ContentView: View {
     @State private var renamingBank: Int?
     @State private var showingCredits = false
     @State private var showingSettings = false
+    @State private var composingMail = false
     /// Which format the share button is asking about, and the file once it has
     /// one to hand over.
     @State private var choosingExport = false
@@ -74,6 +75,12 @@ struct ContentView: View {
     @State private var taps: [TimeInterval] = []
     @StateObject private var force = StrikeForce()
     @AppStorage("velocityFromForce") private var velocityFromForce = true
+    /// Holds ignored, so a pad that is held during a take stays a pad.
+    ///
+    /// Playing is full of long contacts - a hand resting, a roll that ends on
+    /// a press - and every one of them was an invitation to open a menu under
+    /// your fingers. Locked, a pad only ever makes its sound.
+    @AppStorage("padsLocked") private var padsLocked = false
 
     private let holdSeconds = 0.45
 
@@ -255,9 +262,13 @@ struct ContentView: View {
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showingCredits) {
-            CreditsView()
+            CreditsView(midiSource: midi.sourceNames.first, onContact: contact)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $composingMail) {
+            MailComposer(midi: midi.sourceNames.first) { composingMail = false }
+                .ignoresSafeArea()
         }
         // The only thing in the app that asks. Everything else is undoable,
         // and asking about undoable things is how people learn to dismiss
@@ -451,6 +462,12 @@ struct ContentView: View {
                     .disabled(looper.events.isEmpty)
                     .accessibilityLabel("Share the loop")
 
+                    Button { padsLocked.toggle() } label: {
+                        Image(systemName: padsLocked ? "lock.fill" : "lock.open")
+                            .foregroundStyle(padsLocked ? Palette.accent : Palette.ink3)
+                    }
+                    .accessibilityLabel(padsLocked ? "Unlock the pads" : "Lock the pads")
+
                     Button { showingSettings = true } label: {
                         Image(systemName: "gearshape")
                     }
@@ -515,6 +532,23 @@ struct ContentView: View {
                 )
             }
         }
+    }
+
+    /// Compose in place when the phone can, and otherwise hand the whole
+    /// prefilled message to whatever app does handle mail.
+    private func contact() {
+        showingCredits = false
+        guard !Contact.canComposeInApp else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { composingMail = true }
+            return
+        }
+        guard let url = Contact.mailtoURL(midi: midi.sourceNames.first),
+              UIApplication.shared.canOpenURL(url) else {
+            UIPasteboard.general.string = Contact.address
+            status = "メールアプリが見つかりません。宛先をコピーしました"
+            return
+        }
+        UIApplication.shared.open(url)
     }
 
     private var settingsSheet: some View {
@@ -844,8 +878,9 @@ struct ContentView: View {
         strike(rack.slots[slotID], velocity: velocity)
 
         // Holding is a one finger gesture. With a second finger down you are
-        // playing, and nothing should open a sheet under your hands.
-        guard presses.count == 1 else { return }
+        // playing, and nothing should open a sheet under your hands. Locked,
+        // that is true of every finger.
+        guard !padsLocked, presses.count == 1 else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + holdSeconds) {
             guard presses.count == 1, let press = presses[id],
                   !press.dragged, held == nil else { return }
