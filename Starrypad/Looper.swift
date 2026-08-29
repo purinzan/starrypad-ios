@@ -39,6 +39,15 @@ final class Looper: ObservableObject {
     /// Beats left in the count-in, for the transport to show.
     @Published private(set) var countRemaining = 0
 
+    /// Where the bar should draw its playhead, 0 to 1, published every frame
+    /// while anything is running.
+    ///
+    /// The bar used to read a computed position inside a TimelineView, which
+    /// leaves whether it redraws up to SwiftUI. A playhead that stops moving
+    /// is worse than one that costs a little to publish, so the looper drives
+    /// it: one value, sixty times a second, only while running.
+    @Published private(set) var sweep: Double = 0
+
     var totalBeats: Double { Double(bars * 4) }
     var canUndo: Bool { !history.isEmpty }
 
@@ -46,6 +55,7 @@ final class Looper: ObservableObject {
     private var countStartedAt: CFTimeInterval?
     private var playThroughCount = false
     private var lastCountBeat = -1
+    private var lastSweepAt: CFTimeInterval = 0
     private var lastPosition: Double = 0
     private var timer: DispatchSourceTimer?
     private var history: [[Event]] = []
@@ -147,9 +157,38 @@ final class Looper: ObservableObject {
 
     /// Stamp a hit at the playhead. Silent unless recording.
     func capture(padID: Int, velocity: Int) {
-        guard state == .recording else { return }
-        events.append(Event(beat: position, padID: padID, velocity: velocity))
+        switch state {
+        case .recording:
+            // A hit a hair before the loop point belongs at the top of the
+            // next bar, not at the very end of this one where it will play a
+            // whole loop late. Drummers play ahead of the beat; this is the
+            // same rounding a sequencer does at the wrap.
+            let now = position
+            let beat = now > totalBeats - Self.aheadOfBeat ? 0 : now
+            events.append(Event(beat: beat, padID: padID, velocity: velocity))
+
+        case .countIn:
+            // The count-in hands over asynchronously, so for a few
+            // milliseconds after the fourth click the state still says
+            // counting while the player is already on beat one. A hit landing
+            // there was thrown away - exactly the hit that starts the take.
+            guard let startedCountAt = countStartedAt else {
+                events.append(Event(beat: 0, padID: padID, velocity: velocity))
+                return
+            }
+            let beats = (CACurrentMediaTime() - startedCountAt) * bpm / 60.0
+            guard beats > 4 - Self.aheadOfBeat else { return }
+            events.append(Event(beat: 0, padID: padID, velocity: velocity))
+
+        case .idle, .playing:
+            return
+        }
     }
+
+    /// How far ahead of a downbeat still counts as on it, in beats. A twelfth
+    /// of a beat is about 60 ms at 90 bpm - inside human timing, outside
+    /// anything anyone plays deliberately.
+    private static let aheadOfBeat = 1.0 / 12
 
     /// Move recorded hits with the pads they were played on.
     ///
@@ -187,6 +226,7 @@ final class Looper: ObservableObject {
     }
 
     private func tick() {
+        publishSweep()
         if state == .countIn {
             countInTick()
             // A count over an existing take still plays it, so the scheduler
@@ -244,6 +284,20 @@ final class Looper: ObservableObject {
             // the beat right after the fourth click.
             self.begin()
         }
+    }
+
+    /// One published value per display frame, not per 4 ms audio tick.
+    private func publishSweep() {
+        let now = CACurrentMediaTime()
+        guard now - lastSweepAt >= 1.0 / 60 else { return }
+        lastSweepAt = now
+        let value: Double
+        switch state {
+        case .countIn: value = countProgress
+        case .recording, .playing: value = position / totalBeats
+        case .idle: value = 0
+        }
+        DispatchQueue.main.async { [weak self] in self?.sweep = value }
     }
 
     private func pushHistory() {

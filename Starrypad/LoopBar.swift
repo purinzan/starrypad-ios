@@ -9,7 +9,9 @@ struct LoopBar: View {
     @ObservedObject var looper: Looper
 
     var body: some View {
-        TimelineView(.animation) { _ in
+        // No TimelineView: the looper publishes the sweep, so the bar redraws
+        // because the value changed rather than because SwiftUI felt like it.
+        Group {
             GeometryReader { geometry in
                 let width = geometry.size.width
                 let total = looper.totalBeats
@@ -36,7 +38,7 @@ struct LoopBar: View {
                     // jumps between states - it just keeps travelling.
                     if looper.state != .idle {
                         let counting = looper.state == .countIn
-                        let sweep = counting ? looper.countProgress : looper.position / total
+                        let sweep = looper.sweep
                         if counting {
                             Rectangle()
                                 .fill(Palette.danger.opacity(0.18))
