@@ -148,6 +148,16 @@ final class Rack: ObservableObject {
         return out
     }
 
+    /// Put a pad back exactly as the app shipped it.
+    ///
+    /// Everything: the sound, the mix, the trim, the tuning, the name. A reset
+    /// that leaves the level at 40% is not a reset, it is a surprise later.
+    func reset(_ id: Int) {
+        guard slots.indices.contains(id) else { return }
+        slots[id] = Banks.initialSlots()[id]
+        soloed.remove(id)
+    }
+
     /// Put a chosen sound on a slot, leaving its mix alone.
     func setSound(_ source: SoundSource, label: String, on id: Int) {
         slots[id].source = source

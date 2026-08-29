@@ -28,7 +28,11 @@ struct ContentView: View {
     @State private var held: Int?
     @State private var swapTarget: Int?
     @State private var gridSize: CGSize = .zero
+    @State private var gridOrigin: CGPoint = .zero
     @State private var picking: Int?
+    /// The pad whose menu is open, and where on screen it sits.
+    @State private var menuFor: Int?
+    @State private var menuAnchor: CGRect = .zero
     @State private var recordings: [String] = []
 
     @State private var renaming = false
@@ -70,6 +74,7 @@ struct ContentView: View {
         .background(PanelGround())
         .preferredColorScheme(.dark)
         .onAppear(perform: begin)
+        .overlay { if let menuFor { padMenu(for: menuFor) } }
         .sheet(item: pickingBinding) { target in soundPicker(for: target.id) }
         .sheet(isPresented: $pickingVideo) { videoPicker }
     }
@@ -84,8 +89,14 @@ struct ContentView: View {
                     .frame(maxHeight: .infinity)
                 }
             }
-            .onAppear { gridSize = grid.size }
-            .onChange(of: grid.size) { _, size in gridSize = size }
+            .onAppear {
+                gridSize = grid.size
+                gridOrigin = grid.frame(in: .global).origin
+            }
+            .onChange(of: grid.size) { _, size in
+                gridSize = size
+                gridOrigin = grid.frame(in: .global).origin
+            }
             .overlay(
                 PadTouches(onDown: touchDown, onMove: touchMoved, onUp: touchUp)
             )
@@ -97,6 +108,36 @@ struct ContentView: View {
         // the play screen: editing wants the panel whole, playing wants the
         // grid whole, and neither wants a scroll bar.
         .frame(minHeight: screen == .play ? 226 : 192, maxHeight: .infinity)
+    }
+
+    private func padMenu(for slotID: Int) -> some View {
+        PadMenu(
+            slot: rack.slots[slotID],
+            label: Banks.label(for: slotID),
+            anchor: menuAnchor,
+            onRename: {
+                closeMenu()
+                rack.selected = slotID
+                screen = .mix
+                renaming = true
+            },
+            onChangeSound: {
+                closeMenu()
+                recordings = Recordings.all()
+                picking = slotID
+            },
+            onReset: {
+                closeMenu()
+                rack.reset(slotID)
+                player.invalidate(rack.slots[slotID].source)
+                status = "\(Banks.label(for: slotID)) reset"
+            },
+            onDismiss: closeMenu
+        )
+    }
+
+    private func closeMenu() {
+        withAnimation(.easeOut(duration: 0.16)) { menuFor = nil }
     }
 
     private var pickingBinding: Binding<PadTarget?> {
@@ -454,9 +495,21 @@ struct ContentView: View {
             status = "\(Banks.label(for: press.slot)) and \(Banks.label(for: target)) swapped"
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         } else {
-            recordings = Recordings.all()
-            picking = press.slot
+            menuAnchor = cellFrame(for: press.slot)
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                menuFor = press.slot
+            }
         }
+    }
+
+    /// Where a slot's pad sits on screen, so its menu can come out of it.
+    private func cellFrame(for slotID: Int) -> CGRect {
+        let position = slotID % Banks.padCount
+        let column = CGFloat(position % 4), row = CGFloat(3 - position / 4)
+        let cell = CGSize(width: gridSize.width / 4, height: gridSize.height / 4)
+        return CGRect(x: gridOrigin.x + column * cell.width,
+                      y: gridOrigin.y + row * cell.height,
+                      width: cell.width, height: cell.height)
     }
 
     private func strike(_ slot: PadSlot, velocity: Int, record: Bool = true) {
