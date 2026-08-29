@@ -53,14 +53,14 @@ struct ContentView: View {
             if learning { learnBanner }
             padGrid
 
-            LoopBar(looper: looper)
+            ArtSlot(height: 46) { LoopBar(looper: looper) }
             tempoRow
             screenPicker
-            detail
+            ArtBezel { detail }
         }
         .padding(14)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Palette.ground)
+        .background(PanelGround())
         .preferredColorScheme(.dark)
         .onAppear(perform: begin)
         .sheet(item: pickingBinding) { target in soundPicker(for: target.id) }
@@ -131,8 +131,7 @@ struct ContentView: View {
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("STARRYPAD").font(.system(size: 12, weight: .semibold)).kerning(2.4)
-                    .foregroundStyle(Palette.accent)
+                Panel.art("nameplate").resizable().scaledToFit().frame(height: 24)
                 Text(midi.sourceNames.first ?? "No MIDI in")
                     .font(.system(size: 12))
                     .foregroundStyle(midi.sourceNames.isEmpty ? Palette.ink3 : Palette.signal)
@@ -165,14 +164,9 @@ struct ContentView: View {
                 .foregroundStyle(Palette.ink3)
             ForEach(0..<Banks.count, id: \.self) { index in
                 Button { rack.selectBank(index) } label: {
-                    Text(Banks.names[index])
-                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(index == rack.bank ? Palette.onAccent : Palette.ink2)
-                        .frame(width: 34, height: 28)
-                        .background(RoundedRectangle(cornerRadius: 6)
-                            .fill(index == rack.bank ? Palette.accent : Palette.panel))
-                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(
-                            index == rack.bank ? Palette.accent : Palette.rule, lineWidth: 1))
+                    ArtButton(label: Banks.names[index], hue: Palette.accent,
+                              on: index == rack.bank, minHeight: 28)
+                        .frame(width: 38)
                 }
             }
             Spacer()
@@ -186,14 +180,9 @@ struct ContentView: View {
                     learning = true
                 }
             } label: {
-                Text(learning ? "Cancel" : "Learn pads")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(learning ? Palette.onAccent : Palette.ink2)
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .background(RoundedRectangle(cornerRadius: 6)
-                        .fill(learning ? Palette.danger : Palette.panel))
-                    .overlay(RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(learning ? Palette.danger : Palette.rule, lineWidth: 1))
+                ArtButton(label: learning ? "Cancel" : "Learn pads",
+                          hue: Palette.danger, on: learning, minHeight: 28)
+                    .frame(width: 104)
             }
         }
     }
@@ -221,14 +210,8 @@ struct ContentView: View {
         HStack(spacing: 6) {
             ForEach(Screen.allCases, id: \.self) { option in
                 Button { screen = option } label: {
-                    Text(option.rawValue)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(option == screen ? Palette.onAccent : Palette.ink2)
-                        .frame(maxWidth: .infinity).padding(.vertical, 9)
-                        .background(RoundedRectangle(cornerRadius: 7)
-                            .fill(option == screen ? Palette.accent : Palette.panel))
-                        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(
-                            option == screen ? Palette.accent : Palette.rule, lineWidth: 1))
+                    ArtButton(label: option.rawValue, hue: Palette.accent,
+                              on: option == screen, minHeight: 34)
                 }
             }
         }
@@ -261,13 +244,8 @@ struct ContentView: View {
     /// Tempo, which the count-in and the loop both run on.
     private var tempoRow: some View {
         HStack(spacing: 8) {
-            Text("TEMPO").font(.system(size: 10, weight: .semibold)).kerning(1.4)
-                .foregroundStyle(Palette.ink3)
-            Text("\(Int(looper.bpm))")
-                .font(.system(size: 17, weight: .medium, design: .monospaced))
-                .foregroundStyle(Palette.ink)
-                .frame(minWidth: 44, alignment: .leading)
-            Text("BPM").font(.system(size: 10)).foregroundStyle(Palette.ink3)
+            ArtKnob(value: (looper.bpm - 40) / 200, tint: Palette.accent,
+                    caption: "TEMPO", reading: "\(Int(looper.bpm))")
             Spacer()
             tempoButton("-") { looper.bpm = max(40, looper.bpm - 1) }
             tempoButton("+") { looper.bpm = min(240, looper.bpm + 1) }
@@ -278,12 +256,8 @@ struct ContentView: View {
     private func tempoButton(_ label: String, wide: Bool = false, act: @escaping () -> Void)
         -> some View {
         Button(action: act) {
-            Text(label)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Palette.ink)
-                .frame(width: wide ? 52 : 38, height: 30)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Palette.panel))
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Palette.rule, lineWidth: 1))
+            ArtButton(label: label, hue: Palette.accent, on: false, minHeight: 30)
+                .frame(width: wide ? 56 : 42)
         }
     }
 
@@ -329,13 +303,7 @@ struct ContentView: View {
         _ label: String, tint: Color, on: Bool, enabled: Bool = true, act: @escaping () -> Void
     ) -> some View {
         Button(action: act) {
-            Text(label)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(on ? Palette.onAccent : enabled ? Palette.ink : Palette.ink3)
-                .frame(maxWidth: .infinity).padding(.vertical, 11)
-                .background(RoundedRectangle(cornerRadius: 7).fill(on ? tint : Palette.panel))
-                .overlay(RoundedRectangle(cornerRadius: 7)
-                    .strokeBorder(on ? tint : Palette.rule, lineWidth: 1))
+            ArtButton(label: label, hue: tint, on: on, enabled: enabled, minHeight: 38)
         }
         .disabled(!enabled)
     }
@@ -351,36 +319,32 @@ struct ContentView: View {
         let sounding = energy > 0
         let silent = slot.muted || (!rack.soloed.isEmpty && !rack.soloed.contains(slot.id))
         return GeometryReader { geometry in
-            ZStack(alignment: .top) {
-                RoundedRectangle(cornerRadius: 8).fill(sounding ? Palette.padHit : Palette.pad)
-                RoundedRectangle(cornerRadius: 8).fill(Palette.accentSoft.opacity(energy * 0.85))
-                Rectangle()
-                    .fill(Palette.hueHint(slot.hue))
-                    .frame(height: 3)
-                    .clipShape(UnevenRoundedRectangle(topLeadingRadius: 8, topTrailingRadius: 8))
+            ZStack {
+                ArtPad(hue: slot.hue, energy: energy, dimmed: learning && !wanted)
                 VStack(spacing: 3) {
                     Text(slot.label.uppercased())
                         .font(.system(size: 11, weight: .semibold)).kerning(0.8)
-                        .foregroundStyle(sounding ? Palette.accent
+                        .foregroundStyle(sounding ? .white
                                          : isSelected ? Palette.ink : Palette.ink2)
                         .multilineTextAlignment(.center)
                         .minimumScaleFactor(0.7).lineLimit(2)
+                        .shadow(color: .black.opacity(0.9), radius: 2)
                     if case .user = slot.source {
                         Text("SAMPLE").font(.system(size: 8, weight: .semibold)).kerning(1)
                             .foregroundStyle(Palette.signal)
                     }
                 }
                 .padding(.horizontal, 6)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .opacity(learning && !wanted ? 0.25 : silent ? 0.45 : 1)
+            .opacity(silent ? 0.5 : 1)
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: 11)
                     .strokeBorder(
                         isSwapTarget ? Palette.signal
                         : isHeld ? Palette.danger
-                        : sounding || isSelected ? Palette.accent : Palette.rule,
-                        lineWidth: isHeld || isSwapTarget || sounding || isSelected ? 2 : 1)
+                        : isSelected ? Palette.accent : .clear,
+                        lineWidth: 2)
+                    .padding(2)
             )
             .scaleEffect(isHeld ? 0.94 : 1)
             .animation(.easeOut(duration: 0.12), value: isHeld)

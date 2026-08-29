@@ -193,7 +193,17 @@ final class SamplePlayer {
         do {
             try engine.start()
         } catch {
+            // The session can be briefly unavailable at launch - a call ending,
+            // another audio app letting go. Failing once and staying silent for
+            // the rest of the session is the worst possible answer, so it tries
+            // again shortly rather than giving up.
             print("engine: \(error)")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                guard let self, !self.engine.isRunning else { return }
+                self.configureSession(recording: false)
+                try? self.engine.start()
+                for voice in self.voices { voice.play() }
+            }
             return
         }
         // Only start voices the engine actually owns: starting a node on a

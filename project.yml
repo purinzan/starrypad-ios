@@ -16,6 +16,8 @@ targets:
       # silence at runtime. Count the wavs in the .app after touching this.
       - path: Samples
         buildPhase: resources
+      - path: Art
+        buildPhase: resources
     info:
       path: Starrypad/Info.plist
       properties:
