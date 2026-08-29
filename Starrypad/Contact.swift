@@ -9,8 +9,12 @@ import UIKit
 /// place to answer from rather than three. Nothing is sent without the draft
 /// being read - the compose sheet is the phone's own, and Send is a tap the
 /// person takes.
+///
+/// The address is a plain one with nothing personal in it, because it is
+/// printed in the App Store listing, on the support page and inside the app,
+/// and an address given to strangers should say nothing about who owns it.
 enum Contact {
-    static let address = "ijuinryo1997811+starrypad@gmail.com"
+    static let address = "ryo_2318@icloud.com"
 
     static var subject: String { "Starrypad \(version) について" }
 

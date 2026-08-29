@@ -67,6 +67,9 @@ struct ContentView: View {
     @State private var showingCredits = false
     @State private var showingSettings = false
     @State private var composingMail = false
+    /// A line that says what just happened and then gets out of the way.
+    @State private var toast: String?
+    @State private var toastToken = 0
     /// Which format the share button is asking about, and the file once it has
     /// one to hand over.
     @State private var choosingExport = false
@@ -232,6 +235,7 @@ struct ContentView: View {
             .ignoresSafeArea()
             .allowsHitTesting(false)
         }
+        .overlay(alignment: .top) { if let toast { toastBubble(toast) } }
         .overlay { if let menuFor { padMenu(for: menuFor) } }
         .overlay {
             if let hint {
@@ -376,6 +380,35 @@ struct ContentView: View {
         )
     }
 
+    /// Say it once, briefly, over the instrument, and take it away again.
+    ///
+    /// Not the status line, which lives inside the sampler and stays until
+    /// something replaces it. This is for things that have already happened
+    /// and need no answer.
+    private func flash(_ message: String) {
+        toastToken += 1
+        let token = toastToken
+        withAnimation(.easeOut(duration: 0.18)) { toast = message }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+            guard toastToken == token else { return }
+            withAnimation(.easeIn(duration: 0.28)) { toast = nil }
+        }
+    }
+
+    private func toastBubble(_ message: String) -> some View {
+        Text(message)
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(Palette.ink)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.4), radius: 14, y: 5)
+            .padding(.top, 8)
+            .transition(.move(edge: .top).combined(with: .opacity))
+            .allowsHitTesting(false)
+    }
+
     private func closeMenu() {
         withAnimation(.easeOut(duration: 0.16)) {
             menuFor = nil
@@ -454,15 +487,25 @@ struct ContentView: View {
                 // Send it, set it, and where it came from. Ordered by how
                 // often a hand reaches for them.
                 HStack(spacing: 16) {
-                    Button { choosingExport = true } label: {
+                    Button {
+                        guard !looper.events.isEmpty else {
+                            flash("録音データがありません")
+                            return
+                        }
+                        choosingExport = true
+                    } label: {
                         Image(systemName: "square.and.arrow.up")
                             .foregroundStyle(looper.events.isEmpty
                                              ? Palette.ink3 : Palette.accent)
                     }
-                    .disabled(looper.events.isEmpty)
                     .accessibilityLabel("Share the loop")
 
-                    Button { padsLocked.toggle() } label: {
+                    Button {
+                        padsLocked.toggle()
+                        flash(padsLocked
+                              ? "ロック中。長押ししても設定は開きません"
+                              : "ロック解除。長押しで設定が開きます")
+                    } label: {
                         Image(systemName: padsLocked ? "lock.fill" : "lock.open")
                             .foregroundStyle(padsLocked ? Palette.accent : Palette.ink3)
                     }
