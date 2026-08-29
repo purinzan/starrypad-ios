@@ -11,6 +11,8 @@ struct ContentView: View {
     @State private var lit: [Int: Double] = [:]          // slot -> energy
     @State private var velocityFloor = 1
     @State private var lastVelocity = 0
+    /// The last few hits, so a preview can be as loud as playing actually is.
+    @State private var recentHits: [Int] = []
     @State private var loaded = 0
     @State private var notes = NoteMap()
     @State private var lastNote: UInt8?
@@ -323,7 +325,7 @@ struct ContentView: View {
                 // sound, and the pad's tune and trim belong to the old one.
                 var bare = PadSlot(id: target, source: source, label: "", hue: .clear)
                 bare.level = 1
-                player.play(bare, velocity: 110)
+                audition(bare)
             },
             onDelete: { name in
                 try? FileManager.default.removeItem(at: Recordings.url(for: name))
@@ -534,7 +536,7 @@ struct ContentView: View {
             MixerView(rack: rack, looper: looper, renaming: $renaming,
                       velocityFromForce: $velocityFromForce, force: force,
                       onTune: { player.invalidate(rack.slots[rack.selected].source) },
-                      onAudition: { player.audition(rack.slots[rack.selected], velocity: 110) })
+                      onAudition: { audition(rack.slots[rack.selected]) })
         case .sampler:
             samplerPanel
         }
@@ -545,8 +547,8 @@ struct ContentView: View {
                 rack: rack, recorder: recorder, player: player,
                 pending: $pendingSample, draft: $draft, status: $status,
                 onAssign: assignPending,
-                onPreview: { player.audition(draft, velocity: 110) },
-                onPreviewSlot: { player.audition(rack.slots[rack.selected], velocity: 110) },
+                onPreview: { audition(draft) },
+                onPreviewSlot: { audition(rack.slots[rack.selected]) },
                 onPickVideo: { pickingVideo = true },
                 onDiscard: { pendingSample = nil; status = nil }
         )
@@ -874,6 +876,8 @@ struct ContentView: View {
             player.play(slot, velocity: expanded)
         }
         lastVelocity = expanded
+        recentHits.append(expanded)
+        if recentHits.count > 8 { recentHits.removeFirst() }
         if record { looper.capture(padID: slot.id, velocity: expanded) }
 
         let energy = Double(expanded) / 127.0
@@ -882,6 +886,22 @@ struct ContentView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + hold) {
             withAnimation(.easeOut(duration: 0.12)) { lit[slot.id] = 0 }
         }
+    }
+
+    /// Hear a pad the way it sounds when you play it.
+    ///
+    /// A preview used to be sent at 110, which is nearly the top of the curve:
+    /// you checked a sample at close to full force, assigned it, and then it
+    /// was quieter every time you actually hit the pad. The average of the
+    /// last few real hits is what playing sounds like, so that is what a
+    /// preview is worth - and until anything has been hit, a middling 100.
+    private var auditionVelocity: Int {
+        guard !recentHits.isEmpty else { return 100 }
+        return recentHits.reduce(0, +) / recentHits.count
+    }
+
+    private func audition(_ slot: PadSlot) {
+        player.audition(slot, velocity: auditionVelocity)
     }
 
     private func assignPending() {
