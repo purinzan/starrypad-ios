@@ -46,6 +46,14 @@ struct PadSlot: Identifiable {
     /// two hats ringing together is a sound a kit cannot make.
     var chokeGroup: String?
 
+    /// How many copies of this pad may ring at once, if there is a limit.
+    ///
+    /// A crash is one piece of metal. Hit it four times and a real cymbal
+    /// gets louder and busier, not four separate cymbals - so the fourth hit
+    /// takes over from the first rather than adding to it. Most pads have no
+    /// limit: that is what makes a kit sound like a kit.
+    var voiceLimit: Int?
+
     var bank: Int { id / Banks.padCount }
     var positionInBank: Int { id % Banks.padCount }
     var isTrimmed: Bool { start > 0.0001 || end < 0.9999 }
@@ -87,6 +95,7 @@ enum Banks {
             slot.tune = pad.tune
             // Per bank, so an open hat in A is not silenced by a closed one in B.
             slot.chokeGroup = Kit.chokeGroup(for: pad).map { "\(bank):\($0)" }
+            slot.voiceLimit = Kit.voiceLimit(for: pad)
             slot.end = 1
             return slot
         }
@@ -221,6 +230,7 @@ final class Rack: ObservableObject {
             slots[id].hue = Palette.signal
             // A recording is its own sound; nothing else should cut it off.
             slots[id].chokeGroup = nil
+            slots[id].voiceLimit = nil
             // The trim came with the sample, so it comes back with it.
             let region = Recordings.trim(for: name)
             slots[id].start = region.start
@@ -248,6 +258,7 @@ final class Rack: ObservableObject {
         slots[id].source = .user(name: name)
         slots[id].label = label
         slots[id].hue = Palette.signal
+        slots[id].voiceLimit = nil
         // A recording is its own sound. Sampling onto the closed hat used to
         // leave the hat's choke group behind, so the open hat went on cutting
         // a sample that had nothing to do with a hi-hat.

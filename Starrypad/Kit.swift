@@ -155,6 +155,11 @@ enum Kit {
         pad.sound.lowercased().contains("hat") ? "hihat" : nil
     }
 
+    /// How many of a pad may ring together, where the instrument has an answer.
+    static func voiceLimit(for pad: Pad) -> Int? {
+        pad.sound.lowercased().contains("crash") ? 2 : nil
+    }
+
     static func pad(forNote note: UInt8) -> Pad? {
         electronic.first { $0.note == note }
     }

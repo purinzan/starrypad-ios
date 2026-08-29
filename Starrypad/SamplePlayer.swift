@@ -277,6 +277,8 @@ final class SamplePlayer {
            let sounding = voiceSources.firstIndex(of: slot.source.key),
            sounding < playable, voiceBusy[sounding] {
             index = sounding
+        } else if let crowded = overLimit(slot) {
+            index = crowded
         } else {
             index = freeVoice()
         }
@@ -286,6 +288,20 @@ final class SamplePlayer {
         voice.volume = Velocity.gain(velocity) * Float(slot.level)
         voice.pan = Float(max(-1, min(1, slot.pan)))
         schedule(buffer, on: index)
+    }
+
+    /// The voice a pad at its limit should take over, if it is at its limit.
+    ///
+    /// Counting what is already sounding of this exact sound: at the limit,
+    /// the oldest of them gives way, so a crash hit again is one cymbal being
+    /// struck again rather than a second cymbal appearing beside it.
+    private func overLimit(_ slot: PadSlot) -> Int? {
+        guard let limit = slot.voiceLimit, limit > 0 else { return nil }
+        let sounding = (0..<playable).filter {
+            voiceBusy[$0] && voiceSources[$0] == slot.source.key
+        }
+        guard sounding.count >= limit else { return nil }
+        return sounding.min { voiceStamp[$0] < voiceStamp[$1] }
     }
 
     /// An idle voice if there is one, otherwise the one sounding longest.
