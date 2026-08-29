@@ -21,6 +21,7 @@ struct CreditsView: View {
     /// and a cause - but visible, revocable, and readable in full first.
     @State private var attachLog = true
     @State private var showingLog = false
+    @State private var showingPrivacy = false
 
     var body: some View {
         ScrollView {
@@ -38,6 +39,31 @@ struct CreditsView: View {
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundStyle(Palette.ink)
                             Text("うまく動かないことや、あるといいものについて")
+                                .font(.system(size: 12))
+                                .foregroundStyle(Palette.ink3)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Palette.ink3)
+                    }
+                    .padding(14)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Palette.panel))
+                    .overlay(RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(Palette.rule, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+
+                Button { showingPrivacy = true } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "hand.raised")
+                            .font(.system(size: 16))
+                            .foregroundStyle(Palette.accent)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("プライバシーポリシー")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(Palette.ink)
+                            Text("録音、動画、診断ログの取り扱い")
                                 .font(.system(size: 12))
                                 .foregroundStyle(Palette.ink3)
                         }
@@ -130,6 +156,11 @@ struct CreditsView: View {
         .sheet(isPresented: $composing) {
             MailComposer(midi: midiSource, attachLog: attachLog) { composing = false }
                 .ignoresSafeArea()
+        }
+        .sheet(isPresented: $showingPrivacy) {
+            PrivacyPolicyView()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
     }
 
