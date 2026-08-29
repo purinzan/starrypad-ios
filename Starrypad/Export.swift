@@ -88,7 +88,12 @@ enum Export {
             for sample in [left[frame], right[frame]] {
                 // The same saturation the limiter applies on the way out.
                 let value = tanh(sample * master)
-                let scaled = Int16(max(-32768, min(32767, value * 32767)))
+                // A NaN reaching Int16 is a crash, not a loud noise, and the
+                // clamp above lets one straight through: every comparison
+                // against NaN is false.
+                let scaled = value.isFinite
+                    ? Int16(max(-32767, min(32767, value * 32767)))
+                    : 0
                 withUnsafeBytes(of: scaled.littleEndian) { pcm.append(contentsOf: $0) }
             }
         }

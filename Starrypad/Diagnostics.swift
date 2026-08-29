@@ -112,6 +112,12 @@ enum Diagnostics {
 
     private static let cleanKey = "diagnostics.closedCleanly"
 
+    /// The log's path as a C string, worked out at launch.
+    ///
+    /// A signal handler may not allocate - no String, no URL, no Foundation -
+    /// so the one thing it needs is prepared while it is still safe to do so.
+    private static var pathBytes: [CChar] = []
+
     /// Called once at launch.
     ///
     /// The flag is how an unclean exit is noticed at all: iOS keeps the crash
@@ -133,6 +139,63 @@ enum Diagnostics {
         // an implicit Self.
         NSSetUncaughtExceptionHandler { exception in
             Diagnostics.recordFatal(exception)
+        }
+        pathBytes = Array(fileURL.path.utf8CString)
+        installSignalHandlers()
+    }
+
+    /// Catch the deaths an exception handler cannot see.
+    ///
+    /// An uncaught Objective-C exception is only one way to go. A Swift trap -
+    /// an array index out of range, a nil unwrapped, an Int16 that will not
+    /// hold what it was given - is not an exception at all; it is an
+    /// instruction that stops the program, and it arrives here as a signal.
+    /// The first crash this app's own log recorded had no exception line,
+    /// which said what it was not and nothing about what it was.
+    private static func installSignalHandlers() {
+        let handler: @convention(c) (Int32) -> Void = { number in
+            Diagnostics.recordSignal(number)
+            // Put the default back and go again, so iOS still writes its own
+            // report. Swallowing the signal would trade their report for ours.
+            Darwin.signal(number, SIG_DFL)
+            raise(number)
+        }
+        for number in [SIGABRT, SIGILL, SIGSEGV, SIGFPE, SIGBUS, SIGTRAP] {
+            Darwin.signal(number, handler)
+        }
+    }
+
+    /// Written with nothing but write(2) and a stack buffer, because anything
+    /// that allocates can deadlock a process that is already dying.
+    private static func recordSignal(_ number: Int32) {
+        var path = pathBytes
+        guard !path.isEmpty else { return }
+        let descriptor = path.withUnsafeBufferPointer {
+            open($0.baseAddress!, O_WRONLY | O_APPEND | O_CREAT, 0o644)
+        }
+        guard descriptor >= 0 else { return }
+        defer { close(descriptor) }
+
+        let label: StaticString
+        switch number {
+        case SIGABRT: label = "\n致命的: signal SIGABRT (中断)\n"
+        case SIGILL:  label = "\n致命的: signal SIGILL (Swift のトラップの可能性)\n"
+        case SIGSEGV: label = "\n致命的: signal SIGSEGV (不正なメモリ参照)\n"
+        case SIGFPE:  label = "\n致命的: signal SIGFPE (演算エラー)\n"
+        case SIGBUS:  label = "\n致命的: signal SIGBUS\n"
+        case SIGTRAP: label = "\n致命的: signal SIGTRAP (Swift のトラップ)\n"
+        default:      label = "\n致命的: signal (不明)\n"
+        }
+        _ = label.withUTF8Buffer { buffer in
+            Darwin.write(descriptor, buffer.baseAddress, buffer.count)
+        }
+
+        var frames = [UnsafeMutableRawPointer?](repeating: nil, count: 24)
+        let count = frames.withUnsafeMutableBufferPointer {
+            backtrace($0.baseAddress, Int32($0.count))
+        }
+        frames.withUnsafeMutableBufferPointer {
+            backtrace_symbols_fd($0.baseAddress, count, descriptor)
         }
     }
 
@@ -157,6 +220,18 @@ enum Diagnostics {
 
     /// Called when the app goes to the background, which is the last moment
     /// anyone can be sure of.
+    /// Running out of memory leaves no exception and no signal - the app is
+    /// simply gone. A warning in the log just before an unclean exit is the
+    /// only sign that is what happened.
+    static func watchMemory() {
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil, queue: .main
+        ) { _ in
+            log("警告: メモリ不足の通知を受けました")
+        }
+    }
+
     static func end() {
         log("---- 背面へ ----")
         UserDefaults.standard.set(true, forKey: cleanKey)

@@ -811,6 +811,7 @@ struct ContentView: View {
 
     private func begin() {
         Diagnostics.begin()
+        Diagnostics.watchMemory()
         loaded = player.preload(Kit.all)
         Diagnostics.log("キット読み込み: \(loaded) 音")
         // Pads restored from the last session point at recordings that are not
