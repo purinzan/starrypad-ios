@@ -140,6 +140,7 @@ struct ContentView: View {
             guard phase == .active else {
                 // Leaving is the last chance to write anything still pending.
                 rack.saveNow()
+                Diagnostics.vitals("背面へ", events: looper.events.count)
                 Diagnostics.end()
                 return
             }
@@ -738,6 +739,7 @@ struct ContentView: View {
                             minHeight: PerformanceSpec.utilityTransportHeight,
                             width: utility,
                             fontSize: 11) {
+                Diagnostics.log("CLEAR: \(looper.events.count) 打を破棄")
                 looper.clear()
             }
         }

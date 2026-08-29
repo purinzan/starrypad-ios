@@ -47,10 +47,23 @@ final class Looper: ObservableObject {
     private let scheduleLock = NSLock()
 
     private func publishSchedule() {
-        let snapshot = events
+        // Sorted here, once per change, so the tick can find its window by
+        // halving rather than by reading every hit ever played.
+        let snapshot = events.sorted { $0.beat < $1.beat }
         scheduleLock.lock()
         schedule = snapshot
         scheduleLock.unlock()
+    }
+
+    /// The first hit at or after this beat, by binary search.
+    private static func firstIndex(atOrAfter beat: Double, in take: [Event]) -> Int {
+        var low = 0
+        var high = take.count
+        while low < high {
+            let middle = (low + high) / 2
+            if take[middle].beat < beat { low = middle + 1 } else { high = middle }
+        }
+        return low
     }
 
     private var scheduled: [Event] {
@@ -330,8 +343,28 @@ final class Looper: ObservableObject {
 
     // MARK: - Recording
 
+    /// How many hits one take may hold.
+    ///
+    /// There was no limit, and that is what took the app down: recording is
+    /// open ended, so a pad held under a roll for a minute and a half puts
+    /// tens of thousands of hits in a list the scheduler reads every
+    /// millisecond. Two thousand is more than any loop needs - eight bars of
+    /// sixteenths on four pads is five hundred - and past it recording stops
+    /// and says so rather than quietly eating the phone.
+    static let maximumEvents = 2000
+
+    /// Called when a take fills up, so the transport can stop and say why.
+    var onFull: (() -> Void)?
+
     /// Stamp a hit at the playhead. Silent unless recording.
     func capture(padID: Int, velocity: Int) {
+        guard events.count < Self.maximumEvents else {
+            if state == .recording || state == .countIn {
+                state = .playing
+                onFull?()
+            }
+            return
+        }
         switch state {
         case .recording:
             // A hit a hair before the loop point belongs at the top of the
@@ -429,11 +462,22 @@ final class Looper: ObservableObject {
         // The window is normally tiny and forward; at the loop point it wraps,
         // and then it is two windows, not one.
         let due: [Event]
-        let inside = take.filter { $0.beat < totalBeats }
+        // The take is sorted, so what is due is one run of it - two at the
+        // wrap. Walking the whole list a thousand times a second is what a
+        // sequencer must never do, and is why a long take could stall the app.
+        func run(after: Double, upTo: Double) -> ArraySlice<Event> {
+            let start = Self.firstIndex(atOrAfter: after, in: take)
+            var index = start
+            while index < take.count, take[index].beat <= after { index += 1 }
+            var end = index
+            while end < take.count, take[end].beat <= upTo { end += 1 }
+            return take[index..<end]
+        }
         if now >= previous {
-            due = inside.filter { $0.beat > previous && $0.beat <= now }
+            due = Array(run(after: previous, upTo: min(now, totalBeats)))
         } else {
-            due = inside.filter { $0.beat > previous || $0.beat <= now }
+            due = Array(run(after: previous, upTo: totalBeats))
+                + Array(run(after: -1, upTo: min(now, totalBeats)))
         }
         guard !due.isEmpty else { return }
         DispatchQueue.main.async { [weak self] in

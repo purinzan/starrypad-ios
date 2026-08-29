@@ -84,6 +84,26 @@ enum Diagnostics {
         """
     }
 
+    /// What the app is actually using, which is the number that matters when
+    /// something disappears without a word.
+    static var footprintMB: Double {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return 0 }
+        return Double(info.phys_footprint) / 1_048_576
+    }
+
+    /// A line of vital signs, for the moments worth marking.
+    static func vitals(_ occasion: String, events: Int) {
+        log(String(format: "%@: %d 打 · メモリ %.0f MB", occasion, events, footprintMB))
+    }
+
     private static var model: String {
         var info = utsname()
         uname(&info)
@@ -228,7 +248,7 @@ enum Diagnostics {
             forName: UIApplication.didReceiveMemoryWarningNotification,
             object: nil, queue: .main
         ) { _ in
-            log("警告: メモリ不足の通知を受けました")
+            log(String(format: "警告: メモリ不足の通知（使用 %.0f MB）", footprintMB))
         }
     }
 
