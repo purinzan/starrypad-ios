@@ -10,7 +10,13 @@ struct CreditsView: View {
     /// What is connected, so a question about a controller arrives with the
     /// controller's name already in it.
     var midiSource: String?
-    var onContact: () -> Void
+
+    /// The composer is presented from here rather than from the instrument
+    /// behind it. Dismissing one sheet and presenting another a moment later
+    /// is a race SwiftUI sometimes loses, and when it loses, the button looks
+    /// broken.
+    @State private var composing = false
+    @State private var note: String?
 
     var body: some View {
         ScrollView {
@@ -18,7 +24,7 @@ struct CreditsView: View {
                 // First, because someone opening this screen with a problem
                 // should not have to read three licences to find the way out
                 // of it.
-                Button(action: onContact) {
+                Button(action: contact) {
                     HStack(spacing: 12) {
                         Image(systemName: "envelope")
                             .font(.system(size: 16))
@@ -42,6 +48,13 @@ struct CreditsView: View {
                         .strokeBorder(Palette.rule, lineWidth: 1))
                 }
                 .buttonStyle(.plain)
+
+                if let note {
+                    Text(note)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Palette.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 section(
                     "Acoustic kit",
@@ -73,6 +86,35 @@ struct CreditsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Palette.ground)
+        .sheet(isPresented: $composing) {
+            MailComposer(midi: midiSource) { composing = false }
+                .ignoresSafeArea()
+        }
+    }
+
+    /// Compose in place when the phone can. When it cannot - no mail account
+    /// set up - hand the whole prefilled message to whatever app does handle
+    /// mail, and if even that fails, put the address somewhere it can be
+    /// pasted and say so here rather than in a status line on another screen.
+    private func contact() {
+        note = nil
+        if Contact.canComposeInApp {
+            composing = true
+            return
+        }
+        guard let url = Contact.mailtoURL(midi: midiSource) else {
+            copyAddress()
+            return
+        }
+        UIApplication.shared.open(url) { opened in
+            if !opened { copyAddress() }
+        }
+    }
+
+    private func copyAddress() {
+        UIPasteboard.general.string = Contact.address
+        note = "メールアプリが見つかりませんでした。宛先 \(Contact.address) をコピーしたので、"
+            + "お使いのメールアプリから送ってください。"
     }
 
     private func section(_ title: String, body: String, link: String?) -> some View {

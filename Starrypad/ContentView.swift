@@ -66,7 +66,6 @@ struct ContentView: View {
     @State private var renamingBank: Int?
     @State private var showingCredits = false
     @State private var showingSettings = false
-    @State private var composingMail = false
     /// A line that says what just happened and then gets out of the way.
     @State private var toast: String?
     @State private var toastToken = 0
@@ -235,7 +234,7 @@ struct ContentView: View {
             .ignoresSafeArea()
             .allowsHitTesting(false)
         }
-        .overlay(alignment: .top) { if let toast { toastBubble(toast) } }
+        .overlay(alignment: .bottom) { if let toast { toastBubble(toast) } }
         .overlay { if let menuFor { padMenu(for: menuFor) } }
         .overlay {
             if let hint {
@@ -266,13 +265,9 @@ struct ContentView: View {
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showingCredits) {
-            CreditsView(midiSource: midi.sourceNames.first, onContact: contact)
+            CreditsView(midiSource: midi.sourceNames.first)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $composingMail) {
-            MailComposer(midi: midi.sourceNames.first) { composingMail = false }
-                .ignoresSafeArea()
         }
         // The only thing in the app that asks. Everything else is undoable,
         // and asking about undoable things is how people learn to dismiss
@@ -404,8 +399,8 @@ struct ContentView: View {
             .background(.ultraThinMaterial, in: Capsule())
             .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 0.5))
             .shadow(color: .black.opacity(0.4), radius: 14, y: 5)
-            .padding(.top, 8)
-            .transition(.move(edge: .top).combined(with: .opacity))
+            .padding(.bottom, 10)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
             .allowsHitTesting(false)
     }
 
@@ -575,23 +570,6 @@ struct ContentView: View {
                 )
             }
         }
-    }
-
-    /// Compose in place when the phone can, and otherwise hand the whole
-    /// prefilled message to whatever app does handle mail.
-    private func contact() {
-        showingCredits = false
-        guard !Contact.canComposeInApp else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { composingMail = true }
-            return
-        }
-        guard let url = Contact.mailtoURL(midi: midi.sourceNames.first),
-              UIApplication.shared.canOpenURL(url) else {
-            UIPasteboard.general.string = Contact.address
-            status = "メールアプリが見つかりません。宛先をコピーしました"
-            return
-        }
-        UIApplication.shared.open(url)
     }
 
     private var settingsSheet: some View {
