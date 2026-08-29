@@ -714,12 +714,14 @@ struct ContentView: View {
                 fontSize: 20
             ) {
                 looper.toggleRecord()
+                Diagnostics.vitals("REC → \(looper.state)", events: looper.events.count)
             }
             transportButton("Play", tint: Palette.accent, on: looper.state == .playing,
                             minHeight: PerformanceSpec.primaryTransportHeight,
                             width: primary,
                             fontSize: 20) {
                 looper.togglePlay()
+                Diagnostics.vitals("PLAY → \(looper.state)", events: looper.events.count)
             }
             // Same height as Rec and Play, because a ragged row of three
             // button sizes reads as an accident. Width is what says these two
@@ -733,6 +735,7 @@ struct ContentView: View {
                 // "undo" means. Pad edits come back once there is nothing left
                 // to peel off the take.
                 if looper.canUndo { looper.undo() } else { rack.undoEdit() }
+                Diagnostics.log("UNDO: 残り \(looper.events.count) 打")
             }
             transportButton("Clear", tint: Palette.ink2, on: false,
                             enabled: !looper.events.isEmpty,
@@ -772,7 +775,7 @@ struct ContentView: View {
             ZStack {
                 ArtPad(hue: slot.hue, energy: energy, dimmed: learning && !wanted)
                 VStack(spacing: 3) {
-                    Text(slot.label.uppercased())
+                    Text(padLabel(slot.label))
                         .font(.system(size: 12, weight: .bold)).kerning(0.6)
                         .foregroundStyle(sounding ? .white
                                          : isSelected ? Palette.ink : Palette.ink2)
@@ -809,6 +812,12 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private func padLabel(_ label: String) -> String {
+        let uppercased = label.uppercased()
+        guard uppercased.count >= 7, uppercased.contains(" ") else { return uppercased }
+        return uppercased.replacingOccurrences(of: " ", with: "\n")
+    }
+
     // MARK: - Wiring
 
     private func begin() {
@@ -830,6 +839,10 @@ struct ContentView: View {
         player.start()
         player.makeupDecibels = Float(master)
         looper.onClick = { accent in player.click(accent: accent) }
+        looper.onFull = {
+            flash("録音がいっぱいです（\(Looper.maximumEvents) 打）。再生に切り替えました")
+            Diagnostics.vitals("録音上限に到達", events: looper.events.count)
+        }
         looper.onFire = { slotID, velocity in
             guard rack.slots.indices.contains(slotID) else { return }
             strike(rack.slots[slotID], velocity: velocity, record: false)

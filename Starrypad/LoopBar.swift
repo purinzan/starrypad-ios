@@ -68,11 +68,22 @@ struct LoopBar: View {
                             .frame(maxHeight: .infinity, alignment: .top)
                     }
 
-                    ForEach(looper.events.filter { $0.beat < total }) { event in
-                        Capsule()
-                            .fill(Palette.hueHint(Kit.pads[safe: event.padID]?.hue ?? Palette.ink3))
-                            .frame(width: 2, height: 6 + 12 * CGFloat(event.velocity) / 127)
-                            .offset(x: width * CGFloat(event.beat / total) - 1)
+                    // One canvas, not one view per hit. A busy take is
+                    // hundreds of marks, and hundreds of views is a stall of
+                    // the same family as the one that took the app down.
+                    Canvas { context, size in
+                        for event in looper.events where event.beat < total {
+                            let height = 6 + 12 * CGFloat(event.velocity) / 127
+                            let x = size.width * CGFloat(event.beat / total) - 1
+                            let hue = Palette.hueHint(
+                                Kit.pads[safe: event.padID]?.hue ?? Palette.ink3)
+                            context.fill(
+                                Path(roundedRect: CGRect(x: x,
+                                                         y: (size.height - height) / 2,
+                                                         width: 2, height: height),
+                                     cornerRadius: 1),
+                                with: .color(hue))
+                        }
                     }
 
                     // One playhead, one kind of motion. The count sweeps the
