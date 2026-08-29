@@ -86,7 +86,7 @@ struct ContentView: View {
 
     /// Production layout tokens for the main performance surface.
     private enum PerformanceSpec {
-        static let outerMargin: CGFloat = 16
+        static let outerMargin: CGFloat = 12
         static let topInset: CGFloat = 8
         static let bottomInset: CGFloat = 8
         static let sectionGap: CGFloat = 8
@@ -96,7 +96,7 @@ struct ContentView: View {
         /// allowed to give this much up on a screen too short for both, and
         /// not a point more - and because it is a constant, they give it up
         /// whether or not a panel is open, so nothing moves when one is.
-        static let panelRoom: CGFloat = 268
+        static let panelRoom: CGFloat = 232
         static let hairline: CGFloat = 1
         static let panelButtonHeight: CGFloat = 46
         static let bankHeight: CGFloat = 40
@@ -628,8 +628,7 @@ struct ContentView: View {
     private func panelBody(_ which: Panel) -> some View {
         switch which {
         case .mixer:
-            MixerView(rack: rack, looper: looper, renaming: $renaming,
-                      velocityFromForce: $velocityFromForce, force: force,
+            MixerView(rack: rack, renaming: $renaming,
                       onTune: { player.invalidate(rack.slots[rack.selected].source) },
                       onAudition: { audition(rack.slots[rack.selected]) })
         case .sampler:

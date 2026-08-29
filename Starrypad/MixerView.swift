@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Level, pan and tune for the selected pad, plus mute, solo and touch.
+/// Level, pan and tune for the selected pad, plus mute and solo.
 ///
 /// One pad at a time, and everything on one screen. It used to be a column of
 /// full-width sliders that ran past the bottom, which is the wrong shape for a
@@ -11,10 +11,7 @@ import SwiftUI
 /// not behind a tab.
 struct MixerView: View {
     @ObservedObject var rack: Rack
-    @ObservedObject var looper: Looper
     @Binding var renaming: Bool
-    @Binding var velocityFromForce: Bool
-    @ObservedObject var force: StrikeForce
     var onTune: () -> Void
     var onAudition: () -> Void
 
@@ -27,7 +24,6 @@ struct MixerView: View {
             header
             knobs
             buttons
-            touch
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -124,38 +120,6 @@ struct MixerView: View {
 
     /// Where velocity comes from, and what the sensor reads right now, on one
     /// line - it is a setting you check while playing, not a paragraph.
-    private var touch: some View {
-        HStack(spacing: 8) {
-            Text("TOUCH").font(.system(size: 9, weight: .semibold)).kerning(1.3)
-                .foregroundStyle(Palette.ink3).fixedSize()
-
-            Button { if force.available { velocityFromForce.toggle() } } label: {
-                ArtButton(label: velocityFromForce ? "How hard" : "Where you hit",
-                          hue: Palette.accent, on: velocityFromForce,
-                          enabled: force.available, minHeight: 28)
-                    .frame(width: 100)
-            }
-
-            if !force.available {
-                Text("n/a")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(Palette.ink3).fixedSize()
-            }
-
-            Spacer(minLength: 4)
-
-            // A click under the whole take, not only the count. Off by
-            // default - playing to a click is a choice, not a default.
-            Text("CLICK").font(.system(size: 9, weight: .semibold)).kerning(1.3)
-                .foregroundStyle(Palette.ink3).fixedSize()
-            Button { looper.clickThrough.toggle() } label: {
-                ArtButton(label: looper.clickThrough ? "On" : "Off",
-                          hue: Palette.accent, on: looper.clickThrough, minHeight: 28)
-                    .frame(width: 46)
-            }
-        }
-    }
-
     private func panLabel(_ pan: Double) -> String {
         if abs(pan) < 0.02 { return "centre" }
         return "\(pan < 0 ? "L" : "R")\(Int(abs(pan) * 100))"
