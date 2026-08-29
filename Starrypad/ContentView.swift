@@ -56,7 +56,14 @@ struct ContentView: View {
             ArtSlot(height: 46) { LoopBar(looper: looper) }
             tempoRow
             screenPicker
-            ArtBezel { detail }
+            ArtBezel {
+                ScrollView(.vertical, showsIndicators: false) { detail }
+                    // Budgeted against the screen rather than guessed: header,
+                    // banks, grid, bar, tempo and picker take about 600 points
+                    // of 874, and a panel taller than what is left pushes the
+                    // header off the top of the phone.
+                    .frame(maxHeight: screen == .play ? 56 : 224)
+            }
         }
         .padding(14)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -83,7 +90,10 @@ struct ContentView: View {
                 PadTouches(onDown: touchDown, onMove: touchMoved, onUp: touchUp)
             )
         }
-        .frame(maxHeight: .infinity)
+        // The grid is the instrument. A tall panel below it was squeezing the
+        // pads down to a few pixels and letting the loop bar overlap them, so
+        // it keeps its room and the panel scrolls inside what is left.
+        .frame(minHeight: 260, maxHeight: .infinity)
     }
 
     private var pickingBinding: Binding<PadTarget?> {

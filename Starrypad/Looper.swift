@@ -90,11 +90,12 @@ final class Looper: ObservableObject {
     private func beginCountIn(keepPlaying: Bool) {
         countRemaining = 4
         lastCountBeat = -1
-        countStartedAt = CACurrentMediaTime()
         playThroughCount = keepPlaying && !events.isEmpty
         state = .countIn
-        if playThroughCount, startedAt == nil { begin() } else if !playThroughCount { begin() }
-        if timer == nil { begin() }
+        // One clock either way: the count reads its own start time, and the
+        // loop clock is restarted when the count hands over.
+        if !playThroughCount || timer == nil { begin() }
+        countStartedAt = CACurrentMediaTime()
     }
 
     /// How far through the count-in, 0 to 1, for the bar to show.
@@ -168,6 +169,12 @@ final class Looper: ObservableObject {
     // MARK: - Scheduling
 
     private func begin() {
+        // Cancel first. Without this every call left its predecessor running,
+        // so restarting the clock added a timer rather than replacing one, and
+        // several of them resetting startedAt in turn pinned the playhead at
+        // zero however long you recorded.
+        timer?.cancel()
+        timer = nil
         startedAt = CACurrentMediaTime()
         lastPosition = 0
         let timer = DispatchSource.makeTimerSource(queue: queue)
@@ -209,8 +216,8 @@ final class Looper: ObservableObject {
     /// The count runs on its own clock so the take can start at beat zero
     /// rather than one bar in.
     private func countInTick() {
-        guard let countStartedAt else { return }
-        let beats = (CACurrentMediaTime() - countStartedAt) * bpm / 60.0
+        guard let startedCountAt = countStartedAt else { return }
+        let beats = (CACurrentMediaTime() - startedCountAt) * bpm / 60.0
         let beat = Int(beats)
         if beat > lastCountBeat, beat < 4 {
             lastCountBeat = beat
@@ -222,8 +229,11 @@ final class Looper: ObservableObject {
             }
         }
         guard beats >= 4 else { return }
-        // Restart the clock so the downbeat you just heard is the downbeat of
-        // the loop, not a bar before it.
+        // Close the count here, on the tick's own thread. The tick runs every
+        // 4 ms and the handover is asynchronous, so without this it queues a
+        // fresh start on every tick until the first one lands - a thousand of
+        // them across one bar, each restarting the clock.
+        countStartedAt = nil
         DispatchQueue.main.async { [weak self] in
             guard let self, self.state == .countIn else { return }
             self.countRemaining = 0
