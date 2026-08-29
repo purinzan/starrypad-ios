@@ -623,15 +623,17 @@ struct ContentView: View {
         let free = max(160, width - knob * 2 - divider - gaps)
         // Rec and Play are the ones found without looking; they get the room.
         let unit = free / 4.6
+        let masterRange = Double(SamplePlayer.makeupRange.lowerBound)
+            ... Double(SamplePlayer.makeupRange.upperBound)
         return HStack(alignment: .center, spacing: PerformanceSpec.transportGap) {
             ArtKnob(value: $looper.bpm, range: 40...240, tint: Palette.accent,
                     caption: "TEMPO", diameter: PerformanceSpec.knobDiameter,
                     reading: "\(Int(looper.bpm))")
                 .frame(width: knob)
-            ArtKnob(value: $master, range: 0...12, tint: Palette.danger,
+            ArtKnob(value: $master, range: masterRange, tint: Palette.danger,
                     caption: "MASTER", diameter: PerformanceSpec.knobDiameter,
                     reading: String(format: "%+.0f", master),
-                    onCommit: { player.makeupDecibels = Float(master) })
+                    onChange: { player.makeupDecibels = Float($0) })
                 .frame(width: knob)
             Rectangle()
                 .fill(Palette.rule)

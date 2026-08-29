@@ -180,6 +180,8 @@ struct ArtKnob: View {
     var diameter: CGFloat = 46
     var reading: String
     var onCommit: () -> Void = {}
+    /// Called as the knob turns, for a value the ear should hear immediately.
+    var onChange: (Double) -> Void = { _ in }
 
     @State private var startValue: Double?
 
@@ -220,6 +222,7 @@ struct ArtKnob: View {
                         let span = range.upperBound - range.lowerBound
                         let delta = Double(-drag.translation.height / travel) * span
                         value = min(range.upperBound, max(range.lowerBound, from + delta))
+                        onChange(value)
                     }
                     .onEnded { _ in
                         startValue = nil

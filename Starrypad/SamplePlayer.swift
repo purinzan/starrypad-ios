@@ -12,15 +12,35 @@ final class SamplePlayer {
     private static let log = Logger(subsystem: "com.purinzan.starrypad", category: "Audio")
 
     private let engine = AVAudioEngine()
-    /// A gain stage the voices run through. AVAudioPlayerNode.volume and the
-    /// main mixer both stop at 1.0, so making the app louder than "every voice
-    /// flat out" needs somewhere that deals in decibels.
-    /// Output gain in decibels, applied to the audio rather than to a node.
+
+    /// The master gain, as a node rather than as arithmetic on the samples.
     ///
-    /// Two attempts at an AVAudioUnitEQ in the chain gave a graph that either
-    /// would not connect or would not accept the format, and an effect unit is
-    /// a lot of machinery for one multiply. The desktop scales sample data for
-    /// the same reason.
+    /// It used to be baked into the buffers, which meant turning the knob
+    /// rebuilt every sample in the kit and you heard the change on the next
+    /// hit rather than on this one. A knob that answers late is a knob you
+    /// cannot set by ear. AVAudioPlayerNode.volume and the main mixer both
+    /// stop at 1.0, so the stage that deals in decibels is an EQ with no
+    /// bands - all it is here for is its global gain.
+    private let gain = AVAudioUnitEQ(numberOfBands: 0)
+
+    /// The voices meet here first. An effect node has one input bus, so
+    /// connecting twenty-four players straight to the gain stage left the
+    /// twenty-fourth connected and the rest silently unplugged - which the
+    /// engine reports, eventually, as "player started when in a disconnected
+    /// state". Mixers are the nodes that take many inputs; effects are not.
+    private let submix = AVAudioMixerNode()
+
+    /// And behind it, a limiter, because the soft clip that used to be applied
+    /// with the gain went with it. Boosting into a bare output tears; boosting
+    /// into this squashes, which is what a loud drum does anyway.
+    private let limiter: AVAudioUnitEffect = {
+        var description = AudioComponentDescription()
+        description.componentType = kAudioUnitType_Effect
+        description.componentSubType = kAudioUnitSubType_PeakLimiter
+        description.componentManufacturer = kAudioUnitManufacturer_Apple
+        return AVAudioUnitEffect(audioComponentDescription: description)
+    }()
+
     private var makeup: Float = SamplePlayer.defaultMakeupDecibels
     private var voices: [AVAudioPlayerNode] = []
     /// How many of them the pads may use. The rest are reserved.
@@ -30,10 +50,6 @@ final class SamplePlayer {
     /// second is the difference between a smooth drag and a stuttering one.
     private var peakCache: [String: [Float]] = [:]
     private var buffers: [String: AVAudioPCMBuffer] = [:]
-    /// The same buffers with output gain already applied. A hit reads from
-    /// here, so the multiply and the tanh happen once at load rather than on
-    /// the main thread on the way to the speaker.
-    private var amplified: [String: AVAudioPCMBuffer] = [:]
     /// Trimmed and tuned versions, keyed by what made them. Deriving a buffer
     /// costs milliseconds, which is a whole hit's worth of latency, so it
     /// happens once and not on the way to the speaker.
@@ -58,10 +74,17 @@ final class SamplePlayer {
     init(voiceCount: Int = 24) {
         format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
         configureSession(recording: false)
+        engine.attach(submix)
+        engine.attach(gain)
+        engine.attach(limiter)
+        engine.connect(submix, to: gain, format: format)
+        engine.connect(gain, to: limiter, format: format)
+        engine.connect(limiter, to: engine.mainMixerNode, format: format)
+        gain.globalGain = makeup
         for _ in 0..<voiceCount {
             let node = AVAudioPlayerNode()
             engine.attach(node)
-            engine.connect(node, to: engine.mainMixerNode, format: format)
+            engine.connect(node, to: submix, format: format)
             voices.append(node)
         }
         voiceGroups = Array(repeating: nil, count: voices.count)
@@ -184,16 +207,20 @@ final class SamplePlayer {
         start()
     }
 
-    /// Extra output gain in decibels, 0 to +12.
+    /// How far the master knob goes, in decibels either side of unity.
+    static let makeupRange: ClosedRange<Float> = -24...24
+
+    /// Master gain in decibels. Takes effect on the sound already in the air,
+    /// because it is a parameter on a running node and not a property of the
+    /// samples.
     var makeupDecibels: Float {
         get { makeup }
         set {
-            let wanted = max(0, min(12, newValue))
+            let wanted = max(Self.makeupRange.lowerBound,
+                             min(Self.makeupRange.upperBound, newValue))
             guard wanted != makeup else { return }
             makeup = wanted
-            // Gain is baked in, so everything downstream of it is stale.
-            derived.removeAll()
-            rebuildAmplified()
+            gain.globalGain = wanted
         }
     }
 
@@ -210,7 +237,6 @@ final class SamplePlayer {
             }
             buffers[key] = buffer
         }
-        rebuildAmplified()
         return buffers.count
     }
 
@@ -221,14 +247,16 @@ final class SamplePlayer {
         if buffers[key] != nil { return true }
         guard let buffer = Self.buffer(at: Recordings.url(for: name), as: format) else { return false }
         buffers[key] = buffer
-        amplified[key] = Self.amplify(buffer, decibels: makeup)
         return true
     }
 
     func start() {
         guard !engine.isRunning else { return }
+        engine.connect(submix, to: gain, format: format)
+        engine.connect(gain, to: limiter, format: format)
+        engine.connect(limiter, to: engine.mainMixerNode, format: format)
         for voice in voices {
-            engine.connect(voice, to: engine.mainMixerNode, format: format)
+            engine.connect(voice, to: submix, format: format)
         }
         engine.prepare()
         do {
@@ -449,7 +477,7 @@ final class SamplePlayer {
     /// Gain is already in the base buffer, so an untrimmed, untuned pad - the
     /// common case, and every pad on a fresh kit - does no work at all here.
     private func resolved(_ slot: PadSlot) -> AVAudioPCMBuffer? {
-        guard let base = amplified[slot.source.key] ?? buffers[slot.source.key] else { return nil }
+        guard let base = buffers[slot.source.key] else { return nil }
         guard slot.isTrimmed || slot.tune != 0 else { return base }
         let key = "\(slot.source.key)|\(slot.start)|\(slot.end)|\(slot.tune)"
         if let cached = derived[key] { return cached }
@@ -462,14 +490,6 @@ final class SamplePlayer {
         }
         derived[key] = working
         return working
-    }
-
-    private func rebuildAmplified() {
-        amplified.removeAll()
-        guard makeup > 0.01 else { return }
-        for (key, buffer) in buffers {
-            amplified[key] = Self.amplify(buffer, decibels: makeup)
-        }
     }
 
     private static func trim(_ buffer: AVAudioPCMBuffer, from start: Double, to end: Double)
@@ -486,28 +506,6 @@ final class SamplePlayer {
             target[channel].update(from: source[channel] + first, count: length)
         }
         out.frameLength = AVAudioFrameCount(length)
-        return out
-    }
-
-    /// Multiply, then saturate rather than clip.
-    ///
-    /// tanh is close to a straight line until the signal approaches full scale
-    /// and rounds off after that, so quiet material is untouched and a hard hit
-    /// squashes instead of tearing. Hard clipping at +6 dB on a drum sounds
-    /// like a fault; this sounds like a loud drum.
-    private static func amplify(_ buffer: AVAudioPCMBuffer, decibels: Float) -> AVAudioPCMBuffer? {
-        let gain = pow(10, decibels / 20)
-        guard let out = AVAudioPCMBuffer(pcmFormat: buffer.format,
-                                         frameCapacity: buffer.frameLength),
-              let source = buffer.floatChannelData, let target = out.floatChannelData
-        else { return nil }
-        let frames = Int(buffer.frameLength)
-        for channel in 0..<Int(buffer.format.channelCount) {
-            for frame in 0..<frames {
-                target[channel][frame] = tanh(source[channel][frame] * gain)
-            }
-        }
-        out.frameLength = buffer.frameLength
         return out
     }
 
