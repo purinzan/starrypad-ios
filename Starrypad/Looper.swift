@@ -173,13 +173,15 @@ final class Looper: ObservableObject {
         return "\(bar).\(beat).\(sixteenth)"
     }
 
-    /// Which time round the loop is playing, for the bar to show what an undo
-    /// would take off.
-    var passNumber: Int {
-        guard let startedAt, state != .idle else { return 0 }
-        let beats = (CACurrentMediaTime() - startedAt) * bpm / 60.0
-        return max(0, Int(beats / totalBeats)) + 1
-    }
+    /// How many layers of playing are stacked in the take.
+    ///
+    /// It used to count times round the loop, which measures how long you have
+    /// been listening rather than how much you have played: sit through a two
+    /// bar loop for half a minute and it said fifteen. Worse, it disagreed
+    /// with the button beside it - undo peels the newest layer off, and the
+    /// newest layer might be the third. This counts what is actually there,
+    /// so the number and the button mean the same thing.
+    var layers: Int { Set(events.map(\.pass)).count }
 
     /// How many times round the loop has gone since recording started.
     private var currentPass: Int {

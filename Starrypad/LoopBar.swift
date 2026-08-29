@@ -32,10 +32,11 @@ struct LoopBar: View {
                 }
                 .buttonStyle(.plain)
                 Spacer()
-                if looper.state != .idle {
-                    Text("pass ").font(.system(size: 9, weight: .semibold)).kerning(1.1)
+                // What undo would take off, and how much is stacked up.
+                if looper.layers > 0 {
+                    Text("LAYERS ").font(.system(size: 9, weight: .semibold)).kerning(1.1)
                         .foregroundStyle(Palette.ink3)
-                    Text("\(looper.passNumber)")
+                    Text("\(looper.layers)")
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
                         .foregroundStyle(Palette.ink2)
                 }
