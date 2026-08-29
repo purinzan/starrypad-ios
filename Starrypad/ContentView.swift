@@ -33,6 +33,12 @@ struct ContentView: View {
     /// The pad whose menu is open, and where on screen it sits.
     @State private var menuFor: Int?
     @State private var menuAnchor: CGRect = .zero
+    /// A pad lifted off the grid and following the finger, as on the home
+    /// screen: the menu opens on the hold, and dragging out of it picks the
+    /// pad up instead.
+    @State private var carrying: Int?
+    @State private var carryPoint: CGPoint = .zero
+    @State private var dropping = false
     @State private var recordings: [String] = []
 
     @State private var renaming = false
@@ -74,6 +80,7 @@ struct ContentView: View {
         .background(PanelGround())
         .preferredColorScheme(.dark)
         .onAppear(perform: begin)
+        .overlay { if let carrying { carriedPad(carrying) } }
         .overlay { if let menuFor { padMenu(for: menuFor) } }
         .sheet(item: pickingBinding) { target in soundPicker(for: target.id) }
         .sheet(isPresented: $pickingVideo) { videoPicker }
@@ -108,6 +115,28 @@ struct ContentView: View {
         // the play screen: editing wants the panel whole, playing wants the
         // grid whole, and neither wants a scroll bar.
         .frame(minHeight: screen == .play ? 226 : 192, maxHeight: .infinity)
+    }
+
+    /// The pad under the finger, drawn above everything and following it.
+    private func carriedPad(_ slotID: Int) -> some View {
+        let cell = cellFrame(for: slotID)
+        let slot = rack.slots[slotID]
+        return ZStack {
+            ArtPad(hue: slot.hue, energy: 0.55, dimmed: false)
+            Text(slot.label.uppercased())
+                .font(.system(size: 11, weight: .semibold)).kerning(0.8)
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+                .minimumScaleFactor(0.7).lineLimit(2)
+                .shadow(color: .black.opacity(0.9), radius: 2)
+                .padding(.horizontal, 6)
+        }
+        .frame(width: cell.width, height: cell.height)
+        .scaleEffect(dropping ? 1.0 : 1.12)
+        .shadow(color: .black.opacity(0.5), radius: 16, y: 8)
+        .position(carryPoint)
+        .allowsHitTesting(false)
+        .ignoresSafeArea()
     }
 
     private func padMenu(for slotID: Int) -> some View {
@@ -469,14 +498,28 @@ struct ContentView: View {
             held = press.slot
             swapTarget = nil
             UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+            menuAnchor = cellFrame(for: press.slot)
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                menuFor = press.slot
+            }
         }
     }
 
-    private func touchMoved(id: Int, position: Int?) {
+    private func touchMoved(id: Int, position: Int?, point: CGPoint) {
         guard var press = presses[id] else { return }
         if let position, position != press.origin { press.dragged = true }
-        if held == press.slot, press.dragged, let position {
-            swapTarget = rack.bank * Banks.padCount + position
+        if held == press.slot, press.dragged {
+            // Dragging out of the menu puts it away and lifts the pad, which
+            // is what the home screen does and what a finger already moving
+            // clearly means.
+            if menuFor != nil { withAnimation(.easeOut(duration: 0.14)) { menuFor = nil } }
+            if carrying == nil {
+                withAnimation(.spring(response: 0.22, dampingFraction: 0.7)) {
+                    carrying = press.slot
+                }
+            }
+            carryPoint = CGPoint(x: gridOrigin.x + point.x, y: gridOrigin.y + point.y)
+            if let position { swapTarget = rack.bank * Banks.padCount + position }
         }
         press.target = position.map { rack.bank * Banks.padCount + $0 }
         presses[id] = press
@@ -485,20 +528,31 @@ struct ContentView: View {
     private func touchUp(id: Int) {
         guard let press = presses.removeValue(forKey: id) else { return }
         guard held == press.slot else { return }
-        defer { held = nil; swapTarget = nil }
-        if press.dragged {
-            guard let target = swapTarget, target != press.slot else { return }
-            rack.swap(press.slot, target)
-            looper.swapPads(press.slot, target)
-            player.invalidate(rack.slots[press.slot].source)
+        held = nil
+        guard press.dragged else { swapTarget = nil; return }   // the menu is already up
+
+        let source = press.slot
+        let target = swapTarget
+        // Drop it: the carried pad flies to wherever it landed and the swap
+        // happens under it, so the movement is the thing you see rather than
+        // two labels changing places.
+        if let target, target != source {
+            carryPoint = CGRect.center(of: cellFrame(for: target))
+            rack.swap(source, target)
+            looper.swapPads(source, target)
+            player.invalidate(rack.slots[source].source)
             player.invalidate(rack.slots[target].source)
-            status = "\(Banks.label(for: press.slot)) and \(Banks.label(for: target)) swapped"
+            status = "\(Banks.label(for: source)) and \(Banks.label(for: target)) swapped"
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         } else {
-            menuAnchor = cellFrame(for: press.slot)
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                menuFor = press.slot
-            }
+            // Nowhere to go: it drops back where it came from.
+            carryPoint = CGRect.center(of: cellFrame(for: source))
+        }
+        dropping = true
+        withAnimation(.spring(response: 0.26, dampingFraction: 0.78)) { dropping = false }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) {
+            carrying = nil
+            swapTarget = nil
         }
     }
 

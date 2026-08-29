@@ -103,3 +103,10 @@ struct PadMenu: View {
         return below + height < size.height ? below : max(12, anchor.minY - height - 10)
     }
 }
+
+extension CGRect {
+    /// The middle of a cell, which is where a carried pad comes to rest.
+    static func center(of rect: CGRect) -> CGPoint {
+        CGPoint(x: rect.midX, y: rect.midY)
+    }
+}

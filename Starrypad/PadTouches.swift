@@ -16,7 +16,9 @@ struct PadTouches: UIViewRepresentable {
 
     /// A touch landing: which position, and how far up the pad it hit.
     var onDown: (Int, Int, Double) -> Void          // id, position, depth 0...1
-    var onMove: (Int, Int?) -> Void                 // id, position under it now
+    /// id, the position under it now, and where the finger actually is - the
+    /// point is what a pad being carried follows.
+    var onMove: (Int, Int?, CGPoint) -> Void
     var onUp: (Int) -> Void
 
     func makeUIView(context: Context) -> TouchView {
@@ -37,7 +39,7 @@ struct PadTouches: UIViewRepresentable {
 
     final class TouchView: UIView {
         var onDown: ((Int, Int, Double) -> Void)?
-        var onMove: ((Int, Int?) -> Void)?
+        var onMove: ((Int, Int?, CGPoint) -> Void)?
         var onUp: ((Int) -> Void)?
 
         /// UITouch objects are reused, so they are identified by address for
@@ -67,7 +69,8 @@ struct PadTouches: UIViewRepresentable {
         override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
             for touch in touches {
                 guard let id = ids[ObjectIdentifier(touch)] else { continue }
-                onMove?(id, cell(at: touch.location(in: self))?.position)
+                let point = touch.location(in: self)
+                onMove?(id, cell(at: point)?.position, point)
             }
         }
 
