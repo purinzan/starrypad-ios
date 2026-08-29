@@ -39,6 +39,9 @@ final class SamplePlayer {
     /// happens once and not on the way to the speaker.
     private var derived: [String: AVAudioPCMBuffer] = [:]
     private var nextVoice = 0
+    /// Which sound each voice last took, parallel to voices. A sample that is
+    /// already sounding is retriggered on the voice it is already on.
+    private var voiceSources: [String?] = []
     /// What each voice is currently sounding, for choking. Parallel to voices.
     private var voiceGroups: [String?] = []
     private let format: AVAudioFormat
@@ -54,6 +57,7 @@ final class SamplePlayer {
             voices.append(node)
         }
         voiceGroups = Array(repeating: nil, count: voices.count)
+        voiceSources = Array(repeating: nil, count: voices.count)
         // The last voice is not in the round robin. Auditions land on it and
         // nowhere else, so listening to a trim four times in a row is four
         // sounds one after another rather than four at once.
@@ -253,9 +257,23 @@ final class SamplePlayer {
     func play(_ slot: PadSlot, velocity: Int) {
         guard let buffer = resolved(slot) else { return }
         if let group = slot.chokeGroup { choke(group) }
-        let voice = voices[nextVoice]
-        voiceGroups[nextVoice] = slot.chokeGroup
-        nextVoice = (nextVoice + 1) % playable
+        // A sample cuts itself off and nothing else. Hit the same pad twice
+        // and the second hit lands on the voice the first is still using, so
+        // .interrupts replaces it - one copy of a sample, however fast you
+        // play it. Two different samples never touch each other, and a kit
+        // piece is left to ring the way a drum does.
+        let index: Int
+        if slot.source.isUser,
+           let sounding = voiceSources.firstIndex(of: slot.source.key),
+           sounding < playable {
+            index = sounding
+        } else {
+            index = nextVoice
+            nextVoice = (nextVoice + 1) % playable
+        }
+        let voice = voices[index]
+        voiceGroups[index] = slot.chokeGroup
+        voiceSources[index] = slot.source.key
         voice.volume = Velocity.gain(velocity) * Float(slot.level)
         voice.pan = Float(max(-1, min(1, slot.pan)))
         voice.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
@@ -285,6 +303,7 @@ final class SamplePlayer {
             voices[index].stop()
             voices[index].play()
             voiceGroups[index] = nil
+            voiceSources[index] = nil
         }
     }
 

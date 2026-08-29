@@ -12,6 +12,11 @@ enum SoundSource: Equatable {
     case user(name: String)
 
     /// The key the player caches decoded audio under.
+    var isUser: Bool {
+        if case .user = self { return true }
+        return false
+    }
+
     var key: String {
         switch self {
         case .builtIn(let file): return "kit:\(file)"
@@ -243,6 +248,10 @@ final class Rack: ObservableObject {
         slots[id].source = .user(name: name)
         slots[id].label = label
         slots[id].hue = Palette.signal
+        // A recording is its own sound. Sampling onto the closed hat used to
+        // leave the hat's choke group behind, so the open hat went on cutting
+        // a sample that had nothing to do with a hi-hat.
+        slots[id].chokeGroup = nil
         slots[id].start = start
         slots[id].end = end
         slots[id].tune = 0
