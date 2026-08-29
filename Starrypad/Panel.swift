@@ -66,14 +66,40 @@ struct ArtPad: View {
     var energy: Double            // 0 at rest, 1 at a full velocity hit
     var dimmed: Bool
 
-    /// Never fully dark. On the hardware the diffuser is always faintly on, and
-    /// a grid of black squares tells you nothing about which bank you are in.
-    private var glowOpacity: Double { 0.62 + energy * 0.38 }
+    private enum GlowSpec {
+        static let perimeterInset: CGFloat = 5
+        static let perimeterLineWidth: CGFloat = 2
+        static let perimeterRestOpacity = 0.62
+        static let perimeterEnergyOpacity = 0.30
+        static let firstPassRest = 0.0
+        static let firstPassRange = 0.64
+        static let secondPassRange = 0.58
+        static let shadowRest = 0.0
+        static let shadowRange = 0.50
+        static let shadowRadiusRest: CGFloat = 0
+        static let shadowRadiusRange: CGFloat = 10
+        static let cornerRadius: CGFloat = 11
+    }
+
+    /// A crisp hue perimeter at rest, then a decisive bloom when played or
+    /// selected. The colour should guide you, not fog the whole pad grid.
+    private var glowOpacity: Double {
+        GlowSpec.firstPassRest + energy * GlowSpec.firstPassRange
+    }
+
+    private var perimeterOpacity: Double {
+        min(1, GlowSpec.perimeterRestOpacity + energy * GlowSpec.perimeterEnergyOpacity)
+    }
 
     var body: some View {
         ZStack {
             Panel.art("pad-face")
                 .resizable()
+
+            RoundedRectangle(cornerRadius: GlowSpec.cornerRadius)
+                .strokeBorder(hue.opacity(perimeterOpacity),
+                              lineWidth: GlowSpec.perimeterLineWidth)
+                .padding(GlowSpec.perimeterInset)
 
             Panel.art("pad-glow")
                 .resizable()
@@ -94,11 +120,12 @@ struct ArtPad: View {
                 .renderingMode(.template)
                 .foregroundStyle(hue)
                 .scaleEffect(Panel.glowScale * 0.97)
-                .opacity(0.45 + energy * 0.55)
+                .opacity(energy * GlowSpec.secondPassRange)
                 .blendMode(.plusLighter)
         }
         .compositingGroup()
-        .shadow(color: hue.opacity(0.22 + energy * 0.55), radius: 4 + energy * 16)
+        .shadow(color: hue.opacity(GlowSpec.shadowRest + energy * GlowSpec.shadowRange),
+                radius: GlowSpec.shadowRadiusRest + energy * GlowSpec.shadowRadiusRange)
         .opacity(dimmed ? 0.4 : 1)
     }
 }
@@ -110,10 +137,11 @@ struct ArtButton: View {
     var on: Bool
     var enabled = true
     var minHeight: CGFloat = 30
+    var fontSize: CGFloat = 12
 
     var body: some View {
         Text(label)
-            .font(.system(size: 12, weight: .semibold))
+            .font(.system(size: fontSize, weight: .semibold))
             .foregroundStyle(on ? .black.opacity(0.85)
                              : enabled ? Color(white: 0.80) : Color(white: 0.36))
             .lineLimit(1)

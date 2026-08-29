@@ -63,6 +63,35 @@ struct ContentView: View {
         var id: String { rawValue }
     }
 
+    /// Production layout tokens for the main performance surface.
+    private enum PerformanceSpec {
+        static let outerMargin: CGFloat = 16
+        static let topInset: CGFloat = 8
+        static let bottomInset: CGFloat = 12
+        static let sectionGap: CGFloat = 8
+        static let padGap: CGFloat = 8
+        static let hairline: CGFloat = 1
+        static let panelButtonHeight: CGFloat = 56
+        static let bankHeight: CGFloat = 40
+        static let bankRadius: CGFloat = 8
+        static let bankIndicatorHeight: CGFloat = 2
+        static let learnWidth: CGFloat = 72
+        static let midiDot: CGFloat = 8
+        static let knobDiameter: CGFloat = 44
+        static let deckDividerHeight: CGFloat = 64
+        static let primaryTransportHeight: CGFloat = 64
+        static let primaryTransportWidth: CGFloat = 62
+        static let utilityTransportHeight: CGFloat = 34
+        static let utilityTransportWidth: CGFloat = 70
+        static let transportGap: CGFloat = 8
+        static let padCornerRadius: CGFloat = 11
+        static let padStroke: CGFloat = 2
+        static let selectedPadStroke: CGFloat = 3
+        static let selectedPadEnergy: Double = 0.22
+        static let pressedShadowBase: CGFloat = 3
+        static let pressedShadowRange: CGFloat = 12
+    }
+
     /// Pad 0 is bottom left, so the grid is drawn from the top row down.
     private var rows: [[PadSlot]] {
         let visible = rack.visible
@@ -70,7 +99,7 @@ struct ContentView: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: PerformanceSpec.sectionGap) {
             header
             bankRow
             if learning { learnBanner }
@@ -80,15 +109,26 @@ struct ContentView: View {
             Spacer(minLength: 0)
             padGrid
             Spacer(minLength: 0)
-            ArtSlot(height: 62) { LoopBar(looper: looper) }
-            deck
-                .background(
-                    GeometryReader { proxy in
-                        Color.clear.onAppear { deckFrame = proxy.frame(in: .global) }
-                    }
-                )
+            // A panel replaces the loop bar and the transport, and nothing
+            // else. The pads stay where they are and stay playable - the
+            // point of opening the mixer is usually to hear what you changed.
+            if let panel {
+                ArtBezel { panelBody(panel) }
+                    .frame(maxHeight: .infinity)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else {
+                ArtSlot(height: 62) { LoopBar(looper: looper) }
+                deck
+                    .background(
+                        GeometryReader { proxy in
+                            Color.clear.onAppear { deckFrame = proxy.frame(in: .global) }
+                        }
+                    )
+            }
         }
-        .padding(14)
+        .padding(.horizontal, PerformanceSpec.outerMargin)
+        .padding(.top, PerformanceSpec.topInset)
+        .padding(.bottom, PerformanceSpec.bottomInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(PanelGround())
         .preferredColorScheme(.dark)
@@ -138,21 +178,13 @@ struct ContentView: View {
         } message: {
             Text("The sound, level, pan, tune, trim and name all go back to how the app shipped.")
         }
-        .sheet(item: $panel) { which in
-            ArtBezel { panelBody(which) }
-                .padding(14)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .background(PanelGround())
-                .presentationDetents([.height(which == .mixer ? 372 : 470), .large])
-                .presentationDragIndicator(.visible)
-        }
     }
 
     private var padGrid: some View {
         GeometryReader { grid in
-            VStack(spacing: 8) {
+            VStack(spacing: PerformanceSpec.padGap) {
                 ForEach(rows.indices, id: \.self) { row in
-                    HStack(spacing: 8) {
+                    HStack(spacing: PerformanceSpec.padGap) {
                         ForEach(rows[row]) { slot in padView(slot) }
                     }
                     .frame(maxHeight: .infinity)
@@ -273,29 +305,42 @@ struct ContentView: View {
     // MARK: - Chrome
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 8) {
-            Circle()
-                .fill(midi.sourceNames.isEmpty ? Palette.ink3 : Palette.signal)
-                .frame(width: 7, height: 7)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(midi.sourceNames.first ?? "No MIDI in")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(midi.sourceNames.isEmpty ? Palette.ink3 : Palette.ink)
+        VStack(spacing: PerformanceSpec.sectionGap) {
+            Rectangle().fill(Palette.rule.opacity(0.75)).frame(height: PerformanceSpec.hairline)
+
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(midi.sourceNames.isEmpty ? Palette.ink3 : Palette.signal)
+                    .frame(width: PerformanceSpec.midiDot, height: PerformanceSpec.midiDot)
+                Text("MIDI")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Palette.ink)
+                Text(midi.sourceNames.first ?? "Not connected")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(midi.sourceNames.isEmpty ? Palette.ink3 : Palette.ink2)
                     .lineLimit(1)
                 if let lastNote {
-                    Text("note \(lastNote) \u{00b7} \(notes.source.rawValue)")
-                        .font(.system(size: 9, design: .monospaced))
+                    Text("\(lastNote)")
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
                         .foregroundStyle(Palette.ink3)
+                        .padding(.leading, 2)
                 }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 4)
-            // Modes, not destinations: pressing one opens a panel over the
-            // instrument and closing it puts you back where you were playing.
-            ForEach(Panel.allCases) { which in
-                Button { panel = which } label: {
-                    ArtButton(label: which.rawValue, hue: Palette.accent,
-                              on: panel == which, minHeight: 28)
-                        .frame(width: which == .mixer ? 62 : 74)
+
+            Rectangle().fill(Palette.rule.opacity(0.75)).frame(height: PerformanceSpec.hairline)
+
+            HStack(spacing: 10) {
+                // Modes, not destinations: pressing one opens a panel over the
+                // instrument and closing it puts you back where you were playing.
+                ForEach(Panel.allCases) { which in
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
+                            panel = panel == which ? nil : which
+                        }
+                    } label: {
+                        PerformancePanelButton(panel: which, on: panel == which)
+                    }
                 }
             }
         }
@@ -313,17 +358,34 @@ struct ContentView: View {
     }
 
     private var bankRow: some View {
-        HStack(spacing: 6) {
-            Text("BANK").font(.system(size: 10, weight: .semibold)).kerning(1.4)
-                .foregroundStyle(Palette.ink3)
-            ForEach(0..<Banks.count, id: \.self) { index in
-                Button { rack.selectBank(index) } label: {
-                    ArtButton(label: Banks.names[index], hue: Palette.accent,
-                              on: index == rack.bank, minHeight: 28)
-                        .frame(width: 38)
+        HStack(spacing: PerformanceSpec.sectionGap) {
+            HStack(spacing: 0) {
+                ForEach(0..<Banks.count, id: \.self) { index in
+                    Button { rack.selectBank(index) } label: {
+                        BankSegment(index: index, selected: index == rack.bank)
+                    }
+                    if index < Banks.count - 1 {
+                        Rectangle().fill(Palette.rule.opacity(0.75)).frame(width: 1)
+                    }
                 }
             }
-            Spacer()
+            .frame(height: PerformanceSpec.bankHeight)
+            .background(
+                RoundedRectangle(cornerRadius: PerformanceSpec.bankRadius)
+                    .fill(
+                        LinearGradient(
+                            colors: [Palette.panel2.opacity(0.78),
+                                     Palette.ground.opacity(0.92)],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: PerformanceSpec.bankRadius)
+                    .strokeBorder(Palette.rule.opacity(0.9), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: PerformanceSpec.bankRadius))
+
             Button {
                 if learning {
                     notes.cancelLearning()
@@ -334,10 +396,67 @@ struct ContentView: View {
                     learning = true
                 }
             } label: {
-                ArtButton(label: learning ? "Cancel" : "Learn pads",
-                          hue: Palette.danger, on: learning, minHeight: 28)
-                    .frame(width: 104)
+                ArtButton(label: learning ? "Cancel" : "Learn",
+                          hue: Palette.danger, on: learning,
+                          minHeight: PerformanceSpec.bankHeight - 4)
+                    .frame(width: PerformanceSpec.learnWidth)
             }
+        }
+    }
+
+    private struct BankSegment: View {
+        let index: Int
+        let selected: Bool
+
+        private var title: String {
+            switch index {
+            case 0: return "A Acoustic"
+            case 1: return "B 808"
+            case 2: return "C Custom"
+            default: return "D Custom"
+            }
+        }
+
+        var body: some View {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(selected ? Palette.accent : Palette.ink2)
+                .lineLimit(1)
+                .minimumScaleFactor(0.62)
+                .padding(.horizontal, 5)
+                .frame(maxWidth: .infinity, minHeight: PerformanceSpec.bankHeight)
+                .background(
+                    LinearGradient(
+                        colors: selected
+                        ? [Palette.accentSoft.opacity(0.95), Palette.panel.opacity(0.25)]
+                        : [.white.opacity(0.025), .black.opacity(0.10)],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                )
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(selected ? Palette.accent : .clear)
+                        .frame(height: PerformanceSpec.bankIndicatorHeight)
+                        .padding(.horizontal, 8)
+                }
+        }
+    }
+
+    private struct PerformancePanelButton: View {
+        let panel: Panel
+        let on: Bool
+
+        var body: some View {
+            ArtButton(label: panel.rawValue, hue: Palette.accent, on: on,
+                      minHeight: PerformanceSpec.panelButtonHeight, fontSize: 22)
+                .overlay(alignment: .leading) {
+                    Image(systemName: panel == .mixer ? "slider.horizontal.3" : "waveform")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(on ? Palette.onAccent : Palette.ink)
+                        .padding(.leading, 20)
+                        .allowsHitTesting(false)
+                }
+                .padding(.vertical, 2)
         }
     }
 
@@ -369,7 +488,14 @@ struct ContentView: View {
                       onTune: { player.invalidate(rack.slots[rack.selected].source) },
                       onAudition: { strike(rack.slots[rack.selected], velocity: 110, record: false) })
         case .sampler:
-            SamplerView(
+            ScrollView(.vertical, showsIndicators: false) {
+                samplerPanel
+            }
+        }
+    }
+
+    private var samplerPanel: some View {
+        SamplerView(
                 rack: rack, recorder: recorder, player: player,
                 pending: $pendingSample, draft: $draft, status: $status,
                 onAssign: assignPending,
@@ -377,56 +503,78 @@ struct ContentView: View {
                 onPreviewSlot: { strike(rack.slots[rack.selected], velocity: 110, record: false) },
                 onPickVideo: { pickingVideo = true },
                 onDiscard: { pendingSample = nil; status = nil }
-            )
-        }
+        )
     }
 
     /// Tempo and master beside the transport, which is where they sit on the
     /// machine this borrows from - and which costs one row instead of two.
     private var deck: some View {
-        HStack(alignment: .center, spacing: 10) {
+        HStack(alignment: .center, spacing: PerformanceSpec.transportGap) {
             ArtKnob(value: $looper.bpm, range: 40...240, tint: Palette.accent,
-                    caption: "TEMPO", diameter: 42, reading: "\(Int(looper.bpm))")
+                    caption: "TEMPO", diameter: PerformanceSpec.knobDiameter,
+                    reading: "\(Int(looper.bpm))")
             ArtKnob(value: $master, range: 0...12, tint: Palette.danger,
-                    caption: "MASTER", diameter: 42,
+                    caption: "MASTER", diameter: PerformanceSpec.knobDiameter,
                     reading: String(format: "%+.0f", master),
                     onCommit: { player.makeupDecibels = Float(master) })
-            Rectangle().fill(Palette.rule).frame(width: 1, height: 48)
+            Rectangle()
+                .fill(Palette.rule)
+                .frame(width: PerformanceSpec.hairline,
+                       height: PerformanceSpec.deckDividerHeight)
+                .padding(.horizontal, 4)
             transport
         }
     }
 
     private var transport: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: PerformanceSpec.transportGap) {
             transportButton(
                 looper.state == .countIn ? "\(looper.countRemaining)" : "Rec",
                 tint: Palette.danger,
-                on: looper.state == .recording || looper.state == .countIn
+                on: looper.state == .recording || looper.state == .countIn,
+                minHeight: PerformanceSpec.primaryTransportHeight,
+                width: PerformanceSpec.primaryTransportWidth,
+                fontSize: 20
             ) {
                 looper.toggleRecord()
             }
-            transportButton("Play", tint: Palette.accent, on: looper.state == .playing) {
+            transportButton("Play", tint: Palette.accent, on: looper.state == .playing,
+                            minHeight: PerformanceSpec.primaryTransportHeight,
+                            width: PerformanceSpec.primaryTransportWidth,
+                            fontSize: 20) {
                 looper.togglePlay()
             }
-            transportButton("Undo", tint: Palette.ink2, on: false,
-                            enabled: looper.canUndo || rack.canUndo) {
-                // The loop first: while you are playing into it, that is what
-                // "undo" means. Pad edits come back once there is nothing left
-                // to peel off the take.
-                if looper.canUndo { looper.undo() } else { rack.undoEdit() }
-            }
-            transportButton("Clear", tint: Palette.ink2, on: false,
-                            enabled: !looper.events.isEmpty) {
-                looper.clear()
+            VStack(spacing: 6) {
+                transportButton("Undo", tint: Palette.ink2, on: false,
+                                enabled: looper.canUndo || rack.canUndo,
+                                minHeight: PerformanceSpec.utilityTransportHeight,
+                                width: PerformanceSpec.utilityTransportWidth,
+                                fontSize: 12) {
+                    // The loop first: while you are playing into it, that is what
+                    // "undo" means. Pad edits come back once there is nothing left
+                    // to peel off the take.
+                    if looper.canUndo { looper.undo() } else { rack.undoEdit() }
+                }
+                transportButton("Clear", tint: Palette.ink2, on: false,
+                                enabled: !looper.events.isEmpty,
+                                minHeight: PerformanceSpec.utilityTransportHeight,
+                                width: PerformanceSpec.utilityTransportWidth,
+                                fontSize: 12) {
+                    looper.clear()
+                }
             }
         }
     }
 
     private func transportButton(
-        _ label: String, tint: Color, on: Bool, enabled: Bool = true, act: @escaping () -> Void
+        _ label: String, tint: Color, on: Bool, enabled: Bool = true,
+        minHeight: CGFloat = 38, width: CGFloat? = nil, fontSize: CGFloat = 12,
+        act: @escaping () -> Void
     ) -> some View {
         Button(action: act) {
-            ArtButton(label: label, hue: tint, on: on, enabled: enabled, minHeight: 38)
+            ArtButton(label: label, hue: tint, on: on, enabled: enabled,
+                      minHeight: minHeight, fontSize: fontSize)
+                .frame(width: width)
         }
         .disabled(!enabled)
     }
@@ -443,14 +591,18 @@ struct ContentView: View {
         let silent = slot.muted || (!rack.soloed.isEmpty && !rack.soloed.contains(slot.id))
         return GeometryReader { geometry in
             ZStack {
-                ArtPad(hue: slot.hue, energy: energy, dimmed: learning && !wanted)
+                ArtPad(hue: slot.hue,
+                       energy: max(energy, isSelected ? PerformanceSpec.selectedPadEnergy : 0),
+                       dimmed: learning && !wanted)
                 VStack(spacing: 3) {
                     Text(slot.label.uppercased())
-                        .font(.system(size: 11, weight: .semibold)).kerning(0.8)
+                        .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(sounding ? .white
                                          : isSelected ? Palette.ink : Palette.ink2)
                         .multilineTextAlignment(.center)
-                        .minimumScaleFactor(0.7).lineLimit(2)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.68)
+                        .allowsTightening(true)
                         .shadow(color: .black.opacity(0.9), radius: 2)
                     if case .user = slot.source {
                         Text("SAMPLE").font(.system(size: 8, weight: .semibold)).kerning(1)
@@ -461,17 +613,20 @@ struct ContentView: View {
             }
             .opacity(silent ? 0.5 : 1)
             .overlay(
-                RoundedRectangle(cornerRadius: 11)
+                RoundedRectangle(cornerRadius: PerformanceSpec.padCornerRadius)
                     .strokeBorder(
                         isSwapTarget ? Palette.signal
                         : isHeld ? Palette.danger
                         : isSelected ? Palette.accent : .clear,
-                        lineWidth: 2)
+                        lineWidth: isSelected ? PerformanceSpec.selectedPadStroke
+                        : PerformanceSpec.padStroke)
                     .padding(2)
             )
             .scaleEffect(isHeld ? 0.94 : 1)
             .animation(.easeOut(duration: 0.12), value: isHeld)
-            .shadow(color: Palette.accent.opacity(energy * 0.55), radius: 4 + 12 * energy)
+            .shadow(color: Palette.accent.opacity(energy * 0.55),
+                    radius: PerformanceSpec.pressedShadowBase
+                    + PerformanceSpec.pressedShadowRange * energy)
             .contentShape(Rectangle())
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
