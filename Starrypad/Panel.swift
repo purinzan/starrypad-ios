@@ -227,9 +227,13 @@ struct ArtKnob: View {
                     }
             )
 
+            // The caption must not be what decides how wide the knob is.
+            // MASTER is wider than the knob it names, and on a narrower phone
+            // those extra points came off the end of the transport.
             Text(caption)
                 .font(.system(size: 8, weight: .semibold)).kerning(1)
                 .foregroundStyle(Color(white: 0.44))
+                .lineLimit(1).minimumScaleFactor(0.7)
             Text(reading)
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .foregroundStyle(Color(white: 0.86))
@@ -265,5 +269,22 @@ struct ArtBezel<Content: View>: View {
                 Panel.art("bezel")
                     .resizable(capInsets: Panel.Slice.bezel, resizingMode: .stretch)
             )
+    }
+}
+
+/// Report a view's laid-out height, once and whenever it changes.
+///
+/// Used for the rows the pad grid has to fit around: a layout that guesses
+/// their height is a layout that runs off the bottom of a phone nobody
+/// tested on.
+extension View {
+    func measuredHeight(_ report: @escaping (CGFloat) -> Void) -> some View {
+        background(
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { report(proxy.size.height) }
+                    .onChange(of: proxy.size.height) { _, height in report(height) }
+            }
+        )
     }
 }

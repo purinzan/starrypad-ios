@@ -43,6 +43,11 @@ struct ContentView: View {
     @State private var hint: Hint?
     @State private var hintAnchor: CGRect = .zero
     @State private var deckFrame: CGRect = .zero
+    /// The chrome the grid has to fit around, measured as it is laid out.
+    /// The starting values are what it comes to on a current phone, so the
+    /// first frame is already about right rather than visibly settling.
+    @State private var chromeAbove: CGFloat = 96
+    @State private var chromeBelow: CGFloat = 148
     /// A pad lifted off the grid and following the finger, as on the home
     /// screen: the menu opens on the hold, and dragging out of it picks the
     /// pad up instead.
@@ -78,6 +83,11 @@ struct ContentView: View {
         static let sectionGap: CGFloat = 8
         static let padGap: CGFloat = 8
         static let gridInset: CGFloat = 4
+        /// What a panel needs to show itself without scrolling. The pads are
+        /// allowed to give this much up on a screen too short for both, and
+        /// not a point more - and because it is a constant, they give it up
+        /// whether or not a panel is open, so nothing moves when one is.
+        static let panelRoom: CGFloat = 268
         static let hairline: CGFloat = 1
         static let panelButtonHeight: CGFloat = 46
         static let bankHeight: CGFloat = 40
@@ -88,9 +98,7 @@ struct ContentView: View {
         static let knobDiameter: CGFloat = 44
         static let deckDividerHeight: CGFloat = 56
         static let primaryTransportHeight: CGFloat = 56
-        static let primaryTransportWidth: CGFloat = 60
         static let utilityTransportHeight: CGFloat = 56
-        static let utilityTransportWidth: CGFloat = 46
         static let transportGap: CGFloat = 8
         static let padCornerRadius: CGFloat = 11
         static let padStroke: CGFloat = 2
@@ -107,7 +115,7 @@ struct ContentView: View {
 
     private var instrument: some View {
         GeometryReader { screen in
-            performance(side: screen.size.width - PerformanceSpec.outerMargin * 2)
+            performance(in: screen.size)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(PanelGround())
@@ -125,17 +133,41 @@ struct ContentView: View {
 
     /// Everything that plays: chrome, banks, the grid, and whatever occupies
     /// the strip beneath it.
-    private func performance(side: CGFloat) -> some View {
-        VStack(spacing: PerformanceSpec.sectionGap) {
-            header
-            bankRow
-            if learning { learnBanner }
-            // Sized by the width alone, and sitting at a fixed distance from
-            // the bank row. Opening a panel must not move a single pad - the
-            // whole point of leaving them playable is that your hand already
-            // knows where they are. All the give is below.
+    /// The square the pads get, on this screen.
+    ///
+    /// As wide as the screen allows, unless the screen is not tall enough for
+    /// that - on a shorter phone the square gives way rather than pushing the
+    /// transport off the bottom. The chrome above and below is measured rather
+    /// than assumed, because a hand-kept constant is wrong the first time a
+    /// row changes height, and it is the bottom of the screen that pays.
+    private func padSide(in size: CGSize) -> CGFloat {
+        let width = size.width - PerformanceSpec.outerMargin * 2
+        // Four gaps between the five things stacked here, and the small fixed
+        // step between the banks and the grid.
+        let between = PerformanceSpec.sectionGap * 4 + PerformanceSpec.gridInset
+        let fixed = size.height - PerformanceSpec.topInset - PerformanceSpec.bottomInset
+            - between - chromeAbove
+        return max(180, min(width, fixed - chromeBelow, fixed - PerformanceSpec.panelRoom))
+    }
+
+    private func performance(in size: CGSize) -> some View {
+        let side = padSide(in: size)
+        return VStack(spacing: PerformanceSpec.sectionGap) {
+            VStack(spacing: PerformanceSpec.sectionGap) {
+                header
+                bankRow
+                if learning { learnBanner }
+            }
+            .measuredHeight { chromeAbove = $0 }
+
+            // Sized to the screen and sitting at a fixed distance from the
+            // bank row. Opening a panel must not move a single pad - the whole
+            // point of leaving them playable is that your hand already knows
+            // where they are. All the give is below.
             Spacer(minLength: 0).frame(height: PerformanceSpec.gridInset)
             padGrid.frame(width: side, height: side)
+            Spacer(minLength: 0)
+
             // A panel replaces the loop bar and the transport, and nothing
             // else. The pads stay where they are and stay playable - the
             // point of opening the mixer is usually to hear what you changed.
@@ -148,14 +180,18 @@ struct ContentView: View {
                     .frame(maxHeight: .infinity)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             } else {
-                Spacer(minLength: 0)
-                ArtSlot(height: 62) { LoopBar(looper: looper) }
-                deck
-                    .background(
-                        GeometryReader { proxy in
-                            Color.clear.onAppear { deckFrame = proxy.frame(in: .global) }
-                        }
-                    )
+                VStack(spacing: PerformanceSpec.sectionGap) {
+                    ArtSlot(height: 62) { LoopBar(looper: looper) }
+                    deck(width: size.width - PerformanceSpec.outerMargin * 2)
+                        .background(
+                            GeometryReader { proxy in
+                                Color.clear.onAppear { deckFrame = proxy.frame(in: .global) }
+                            }
+                        )
+                }
+                // Only while it is on screen: with a panel open this keeps the
+                // last closed measurement, so the grid stays put.
+                .measuredHeight { chromeBelow = $0 }
             }
         }
         .padding(.horizontal, PerformanceSpec.outerMargin)
@@ -163,7 +199,7 @@ struct ContentView: View {
         .padding(.bottom, PerformanceSpec.bottomInset)
         // Pinned to the screen's own width. A row that wants more than this
         // has to compress, not push the whole instrument off the edge.
-        .frame(width: side + PerformanceSpec.outerMargin * 2)
+        .frame(width: size.width)
         .frame(maxHeight: .infinity, alignment: .top)
     }
 
@@ -561,26 +597,36 @@ struct ContentView: View {
 
     /// Tempo and master beside the transport, which is where they sit on the
     /// machine this borrows from - and which costs one row instead of two.
-    private var deck: some View {
-        HStack(alignment: .center, spacing: PerformanceSpec.transportGap) {
+    /// Tempo and master beside the transport, sized to whatever width the
+    /// phone has. Fixed button widths fitted one screen and ran off the next.
+    private func deck(width: CGFloat) -> some View {
+        let knob = PerformanceSpec.knobDiameter + 16
+        let divider = PerformanceSpec.hairline + 8
+        let gaps = PerformanceSpec.transportGap * 6
+        let free = max(160, width - knob * 2 - divider - gaps)
+        // Rec and Play are the ones found without looking; they get the room.
+        let unit = free / 4.6
+        return HStack(alignment: .center, spacing: PerformanceSpec.transportGap) {
             ArtKnob(value: $looper.bpm, range: 40...240, tint: Palette.accent,
                     caption: "TEMPO", diameter: PerformanceSpec.knobDiameter,
                     reading: "\(Int(looper.bpm))")
+                .frame(width: knob)
             ArtKnob(value: $master, range: 0...12, tint: Palette.danger,
                     caption: "MASTER", diameter: PerformanceSpec.knobDiameter,
                     reading: String(format: "%+.0f", master),
                     onCommit: { player.makeupDecibels = Float(master) })
+                .frame(width: knob)
             Rectangle()
                 .fill(Palette.rule)
                 .frame(width: PerformanceSpec.hairline,
                        height: PerformanceSpec.deckDividerHeight)
                 .padding(.horizontal, 4)
             Spacer(minLength: 0)
-            transport
+            transport(primary: unit * 1.3, utility: unit)
         }
     }
 
-    private var transport: some View {
+    private func transport(primary: CGFloat, utility: CGFloat) -> some View {
         HStack(spacing: PerformanceSpec.transportGap) {
             transportButton(
                 looper.state == .countIn ? "\(looper.countRemaining)"
@@ -588,14 +634,14 @@ struct ContentView: View {
                 tint: Palette.danger,
                 on: looper.state == .recording || looper.state == .countIn || looper.armed,
                 minHeight: PerformanceSpec.primaryTransportHeight,
-                width: PerformanceSpec.primaryTransportWidth,
+                width: primary,
                 fontSize: 20
             ) {
                 looper.toggleRecord()
             }
             transportButton("Play", tint: Palette.accent, on: looper.state == .playing,
                             minHeight: PerformanceSpec.primaryTransportHeight,
-                            width: PerformanceSpec.primaryTransportWidth,
+                            width: primary,
                             fontSize: 20) {
                 looper.togglePlay()
             }
@@ -605,7 +651,7 @@ struct ContentView: View {
             transportButton("Undo", tint: Palette.ink2, on: false,
                             enabled: looper.canUndo || rack.canUndo,
                             minHeight: PerformanceSpec.utilityTransportHeight,
-                            width: PerformanceSpec.utilityTransportWidth,
+                            width: utility,
                             fontSize: 11) {
                 // The loop first: while you are playing into it, that is what
                 // "undo" means. Pad edits come back once there is nothing left
@@ -615,7 +661,7 @@ struct ContentView: View {
             transportButton("Clear", tint: Palette.ink2, on: false,
                             enabled: !looper.events.isEmpty,
                             minHeight: PerformanceSpec.utilityTransportHeight,
-                            width: PerformanceSpec.utilityTransportWidth,
+                            width: utility,
                             fontSize: 11) {
                 looper.clear()
             }
