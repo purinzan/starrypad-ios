@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var midi = MIDIInput()
     @StateObject private var looper = Looper()
     @StateObject private var rack = Rack()
@@ -50,6 +51,9 @@ struct ContentView: View {
     @State private var recordings: [String] = []
 
     @State private var renaming = false
+    /// The bank whose name is being edited, and the text so far.
+    @State private var renamingBank: Int?
+    @State private var bankDraft = ""
     @State private var taps: [TimeInterval] = []
     @StateObject private var force = StrikeForce()
     @AppStorage("velocityFromForce") private var velocityFromForce = true
@@ -67,27 +71,27 @@ struct ContentView: View {
     private enum PerformanceSpec {
         static let outerMargin: CGFloat = 16
         static let topInset: CGFloat = 8
-        static let bottomInset: CGFloat = 12
+        static let bottomInset: CGFloat = 8
         static let sectionGap: CGFloat = 8
         static let padGap: CGFloat = 8
+        static let gridInset: CGFloat = 4
         static let hairline: CGFloat = 1
-        static let panelButtonHeight: CGFloat = 56
+        static let panelButtonHeight: CGFloat = 46
         static let bankHeight: CGFloat = 40
         static let bankRadius: CGFloat = 8
         static let bankIndicatorHeight: CGFloat = 2
         static let learnWidth: CGFloat = 72
         static let midiDot: CGFloat = 8
         static let knobDiameter: CGFloat = 44
-        static let deckDividerHeight: CGFloat = 64
-        static let primaryTransportHeight: CGFloat = 64
-        static let primaryTransportWidth: CGFloat = 62
-        static let utilityTransportHeight: CGFloat = 34
-        static let utilityTransportWidth: CGFloat = 70
+        static let deckDividerHeight: CGFloat = 56
+        static let primaryTransportHeight: CGFloat = 56
+        static let primaryTransportWidth: CGFloat = 60
+        static let utilityTransportHeight: CGFloat = 56
+        static let utilityTransportWidth: CGFloat = 46
         static let transportGap: CGFloat = 8
         static let padCornerRadius: CGFloat = 11
         static let padStroke: CGFloat = 2
         static let selectedPadStroke: CGFloat = 3
-        static let selectedPadEnergy: Double = 0.22
         static let pressedShadowBase: CGFloat = 3
         static let pressedShadowRange: CGFloat = 12
     }
@@ -98,25 +102,46 @@ struct ContentView: View {
         return stride(from: 12, through: 0, by: -4).map { Array(visible[$0..<($0 + 4)]) }
     }
 
-    var body: some View {
+    private var instrument: some View {
+        GeometryReader { screen in
+            performance(side: screen.size.width - PerformanceSpec.outerMargin * 2)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(PanelGround())
+        .preferredColorScheme(.dark)
+        .onAppear(perform: begin)
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            player.activateSession(reason: "scene active")
+        }
+    }
+
+    /// Everything that plays: chrome, banks, the grid, and whatever occupies
+    /// the strip beneath it.
+    private func performance(side: CGFloat) -> some View {
         VStack(spacing: PerformanceSpec.sectionGap) {
             header
             bankRow
             if learning { learnBanner }
-            // The square grid leaves about 100 points over. Split above and
-            // below rather than pooled at the bottom, so the pads sit where
-            // your hand already is instead of riding the top edge.
-            Spacer(minLength: 0)
-            padGrid
-            Spacer(minLength: 0)
+            // Sized by the width alone, and sitting at a fixed distance from
+            // the bank row. Opening a panel must not move a single pad - the
+            // whole point of leaving them playable is that your hand already
+            // knows where they are. All the give is below.
+            Spacer(minLength: 0).frame(height: PerformanceSpec.gridInset)
+            padGrid.frame(width: side, height: side)
             // A panel replaces the loop bar and the transport, and nothing
             // else. The pads stay where they are and stay playable - the
             // point of opening the mixer is usually to hear what you changed.
             if let panel {
-                ArtBezel { panelBody(panel) }
+                ArtBezel {
+                    ScrollView(.vertical, showsIndicators: false) {
+                        panelBody(panel)
+                    }
+                }
                     .frame(maxHeight: .infinity)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             } else {
+                Spacer(minLength: 0)
                 ArtSlot(height: 62) { LoopBar(looper: looper) }
                 deck
                     .background(
@@ -129,10 +154,16 @@ struct ContentView: View {
         .padding(.horizontal, PerformanceSpec.outerMargin)
         .padding(.top, PerformanceSpec.topInset)
         .padding(.bottom, PerformanceSpec.bottomInset)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(PanelGround())
-        .preferredColorScheme(.dark)
-        .onAppear(perform: begin)
+        // Pinned to the screen's own width. A row that wants more than this
+        // has to compress, not push the whole instrument off the edge.
+        .frame(width: side + PerformanceSpec.outerMargin * 2)
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    /// The instrument, and the layers that sit over it: a carried pad, its
+    /// menu, the hints, and every sheet and alert the panels open.
+    var body: some View {
+        instrument
         .overlay {
             GeometryReader { proxy in
                 if let carrying {
@@ -177,6 +208,17 @@ struct ContentView: View {
             Button("Cancel", role: .cancel) { resetting = nil }
         } message: {
             Text("The sound, level, pan, tune, trim and name all go back to how the app shipped.")
+        }
+        .alert("Rename bank", isPresented: Binding(
+            get: { renamingBank != nil },
+            set: { if !$0 { renamingBank = nil } }
+        )) {
+            TextField("Name", text: $bankDraft)
+            Button("Save") {
+                if let index = renamingBank { rack.renameBank(index, to: bankDraft) }
+                renamingBank = nil
+            }
+            Button("Cancel", role: .cancel) { renamingBank = nil }
         }
     }
 
@@ -306,8 +348,6 @@ struct ContentView: View {
 
     private var header: some View {
         VStack(spacing: PerformanceSpec.sectionGap) {
-            Rectangle().fill(Palette.rule.opacity(0.75)).frame(height: PerformanceSpec.hairline)
-
             HStack(spacing: 8) {
                 Circle()
                     .fill(midi.sourceNames.isEmpty ? Palette.ink3 : Palette.signal)
@@ -327,8 +367,6 @@ struct ContentView: View {
                 }
                 Spacer(minLength: 0)
             }
-
-            Rectangle().fill(Palette.rule.opacity(0.75)).frame(height: PerformanceSpec.hairline)
 
             HStack(spacing: 10) {
                 // Modes, not destinations: pressing one opens a panel over the
@@ -362,8 +400,16 @@ struct ContentView: View {
             HStack(spacing: 0) {
                 ForEach(0..<Banks.count, id: \.self) { index in
                     Button { rack.selectBank(index) } label: {
-                        BankSegment(index: index, selected: index == rack.bank)
+                        BankSegment(index: index, title: rack.bankTitles[index],
+                                    selected: index == rack.bank)
                     }
+                    // Hold to rename, the same gesture that renames a pad.
+                    .simultaneousGesture(
+                        LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                            bankDraft = rack.bankTitles[index]
+                            renamingBank = index
+                        }
+                    )
                     if index < Banks.count - 1 {
                         Rectangle().fill(Palette.rule.opacity(0.75)).frame(width: 1)
                     }
@@ -406,19 +452,11 @@ struct ContentView: View {
 
     private struct BankSegment: View {
         let index: Int
+        let title: String
         let selected: Bool
 
-        private var title: String {
-            switch index {
-            case 0: return "A Acoustic"
-            case 1: return "B 808"
-            case 2: return "C Custom"
-            default: return "D Custom"
-            }
-        }
-
         var body: some View {
-            Text(title)
+            Text("\(Banks.names[index]) \(title)")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(selected ? Palette.accent : Palette.ink2)
                 .lineLimit(1)
@@ -448,12 +486,12 @@ struct ContentView: View {
 
         var body: some View {
             ArtButton(label: panel.rawValue, hue: Palette.accent, on: on,
-                      minHeight: PerformanceSpec.panelButtonHeight, fontSize: 22)
+                      minHeight: PerformanceSpec.panelButtonHeight, fontSize: 17)
                 .overlay(alignment: .leading) {
                     Image(systemName: panel == .mixer ? "slider.horizontal.3" : "waveform")
-                        .font(.system(size: 22, weight: .semibold))
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(on ? Palette.onAccent : Palette.ink)
-                        .padding(.leading, 20)
+                        .padding(.leading, 16)
                         .allowsHitTesting(false)
                 }
                 .padding(.vertical, 2)
@@ -488,9 +526,7 @@ struct ContentView: View {
                       onTune: { player.invalidate(rack.slots[rack.selected].source) },
                       onAudition: { strike(rack.slots[rack.selected], velocity: 110, record: false) })
         case .sampler:
-            ScrollView(.vertical, showsIndicators: false) {
-                samplerPanel
-            }
+            samplerPanel
         }
     }
 
@@ -522,6 +558,7 @@ struct ContentView: View {
                 .frame(width: PerformanceSpec.hairline,
                        height: PerformanceSpec.deckDividerHeight)
                 .padding(.horizontal, 4)
+            Spacer(minLength: 0)
             transport
         }
     }
@@ -544,24 +581,25 @@ struct ContentView: View {
                             fontSize: 20) {
                 looper.togglePlay()
             }
-            VStack(spacing: 6) {
-                transportButton("Undo", tint: Palette.ink2, on: false,
-                                enabled: looper.canUndo || rack.canUndo,
-                                minHeight: PerformanceSpec.utilityTransportHeight,
-                                width: PerformanceSpec.utilityTransportWidth,
-                                fontSize: 12) {
-                    // The loop first: while you are playing into it, that is what
-                    // "undo" means. Pad edits come back once there is nothing left
-                    // to peel off the take.
-                    if looper.canUndo { looper.undo() } else { rack.undoEdit() }
-                }
-                transportButton("Clear", tint: Palette.ink2, on: false,
-                                enabled: !looper.events.isEmpty,
-                                minHeight: PerformanceSpec.utilityTransportHeight,
-                                width: PerformanceSpec.utilityTransportWidth,
-                                fontSize: 12) {
-                    looper.clear()
-                }
+            // Same height as Rec and Play, because a ragged row of three
+            // button sizes reads as an accident. Width is what says these two
+            // matter less, and the tint says it again.
+            transportButton("Undo", tint: Palette.ink2, on: false,
+                            enabled: looper.canUndo || rack.canUndo,
+                            minHeight: PerformanceSpec.utilityTransportHeight,
+                            width: PerformanceSpec.utilityTransportWidth,
+                            fontSize: 11) {
+                // The loop first: while you are playing into it, that is what
+                // "undo" means. Pad edits come back once there is nothing left
+                // to peel off the take.
+                if looper.canUndo { looper.undo() } else { rack.undoEdit() }
+            }
+            transportButton("Clear", tint: Palette.ink2, on: false,
+                            enabled: !looper.events.isEmpty,
+                            minHeight: PerformanceSpec.utilityTransportHeight,
+                            width: PerformanceSpec.utilityTransportWidth,
+                            fontSize: 11) {
+                looper.clear()
             }
         }
     }
@@ -591,12 +629,10 @@ struct ContentView: View {
         let silent = slot.muted || (!rack.soloed.isEmpty && !rack.soloed.contains(slot.id))
         return GeometryReader { geometry in
             ZStack {
-                ArtPad(hue: slot.hue,
-                       energy: max(energy, isSelected ? PerformanceSpec.selectedPadEnergy : 0),
-                       dimmed: learning && !wanted)
+                ArtPad(hue: slot.hue, energy: energy, dimmed: learning && !wanted)
                 VStack(spacing: 3) {
                     Text(slot.label.uppercased())
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 12, weight: .bold)).kerning(0.6)
                         .foregroundStyle(sounding ? .white
                                          : isSelected ? Palette.ink : Palette.ink2)
                         .multilineTextAlignment(.center)
@@ -640,6 +676,7 @@ struct ContentView: View {
         // decides whether this feels like an instrument, and it belongs in the
         // log when someone says the app feels slow.
         print(String(format: "output latency %.2f ms", player.outputLatencyMilliseconds))
+        player.activateSession(reason: "launch")
         player.start()
         looper.onClick = { accent in player.click(accent: accent) }
         looper.onFire = { slotID, velocity in

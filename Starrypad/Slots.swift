@@ -51,6 +51,22 @@ enum Banks {
     static let count = 4
     static let slotCount = padCount * count
     static let names = ["A", "B", "C", "D"]
+    /// What each bank holds. C and D start as copies of A, so they are named
+    /// for the letter until someone makes them their own - "Custom" twice
+    /// over told you nothing about which was which.
+    static let defaultTitles = ["Acoustic", "808", "Kit C", "Kit D"]
+
+    private static let titlesKey = "bank.titles"
+
+    static func loadTitles() -> [String] {
+        let saved = UserDefaults.standard.stringArray(forKey: titlesKey) ?? []
+        return (0..<count).map { saved.indices.contains($0) && !saved[$0].isEmpty
+            ? saved[$0] : defaultTitles[$0] }
+    }
+
+    static func saveTitles(_ titles: [String]) {
+        UserDefaults.standard.set(titles, forKey: titlesKey)
+    }
 
     /// A is the acoustic kit, B the electronic one. C and D start as copies of
     /// A, dimmed: an empty pad that makes no sound is a pad you cannot tell
@@ -78,6 +94,18 @@ enum Banks {
 
 /// The slots, the selection, and which bank is on screen.
 final class Rack: ObservableObject {
+    /// Editable, because a bank you have filled yourself deserves its own
+    /// name and the letter alone is not one.
+    @Published var bankTitles: [String] = Banks.loadTitles() {
+        didSet { Banks.saveTitles(bankTitles) }
+    }
+
+    func renameBank(_ index: Int, to name: String) {
+        guard bankTitles.indices.contains(index) else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        bankTitles[index] = trimmed.isEmpty ? Banks.defaultTitles[index] : trimmed
+    }
+
     @Published var slots: [PadSlot] = Banks.initialSlots()
     @Published var bank: Int = 0
     @Published var selected: Int = 0

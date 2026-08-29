@@ -1,4 +1,5 @@
 import AVFoundation
+import OSLog
 
 /// A fixed pool of player nodes fed from preloaded buffers.
 ///
@@ -8,6 +9,7 @@ import AVFoundation
 /// iOS will give, since the output path is where the latency lives on any
 /// platform.
 final class SamplePlayer {
+    private static let log = Logger(subsystem: "com.purinzan.starrypad", category: "Audio")
 
     private let engine = AVAudioEngine()
     /// A gain stage the voices run through. AVAudioPlayerNode.volume and the
@@ -34,6 +36,7 @@ final class SamplePlayer {
     /// What each voice is currently sounding, for choking. Parallel to voices.
     private var voiceGroups: [String?] = []
     private let format: AVAudioFormat
+    private var recordingRoute = false
 
     init(voiceCount: Int = 24) {
         format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
@@ -74,7 +77,7 @@ final class SamplePlayer {
                 // iOS says whether it expects us back; asking anyway is how you
                 // end up fighting whatever interrupted you.
                 guard options.contains(.shouldResume) else { return }
-                self.configureSession(recording: false)
+                self.configureSession(recording: self.recordingRoute, reason: "interruption ended")
                 self.engine.stop()
                 self.start()
             @unknown default:
@@ -86,14 +89,16 @@ final class SamplePlayer {
                            object: session, queue: .main) { [weak self] _ in
             guard let self else { return }
             self.engine.stop()
-            self.configureSession(recording: false)
+            self.configureSession(recording: self.recordingRoute, reason: "media services reset")
             self.start()
         }
 
         centre.addObserver(forName: AVAudioSession.routeChangeNotification,
                            object: session, queue: .main) { [weak self] _ in
             // Headphones in or out rebuilds the output chain underneath us.
-            guard let self, !self.engine.isRunning else { return }
+            guard let self else { return }
+            self.activateSession(reason: "route changed")
+            guard !self.engine.isRunning else { return }
             self.start()
         }
     }
@@ -107,8 +112,9 @@ final class SamplePlayer {
     /// holds the level well below what playback gets, so leaving the session in
     /// playAndRecord all the time - which is what shipping the sampler first
     /// did - makes the whole instrument quiet even when nothing is recording.
-    private func configureSession(recording: Bool) {
+    private func configureSession(recording: Bool, reason: String = "configure") {
         let session = AVAudioSession.sharedInstance()
+        recordingRoute = recording
         do {
             if recording {
                 try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
@@ -116,7 +122,7 @@ final class SamplePlayer {
                 try session.setCategory(.playback, mode: .default)
             }
         } catch {
-            print("audio session category: \(error)")
+            Self.log.error("audio session category (\(reason, privacy: .public)): \(error.localizedDescription, privacy: .public)")
         }
         // Preferences, not requirements. A device that will not hand over a
         // 3 ms buffer should still make sound; failing the whole setup over it
@@ -125,8 +131,19 @@ final class SamplePlayer {
         try? session.setPreferredSampleRate(48000)
         do {
             try session.setActive(true)
+            Self.log.info("audio session active: \(recording ? "playAndRecord" : "playback", privacy: .public) (\(reason, privacy: .public))")
         } catch {
-            print("audio session activate: \(error)")
+            Self.log.error("audio session activate (\(reason, privacy: .public)): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Reclaim the foreground audio session without rebuilding the engine when
+    /// it is already healthy. This is the app-level "audio leadership" path:
+    /// exclusive session activation, not user volume control.
+    func activateSession(reason: String = "foreground") {
+        configureSession(recording: recordingRoute, reason: reason)
+        if !engine.isRunning {
+            start()
         }
     }
 
@@ -197,11 +214,16 @@ final class SamplePlayer {
             // another audio app letting go. Failing once and staying silent for
             // the rest of the session is the worst possible answer, so it tries
             // again shortly rather than giving up.
-            print("engine: \(error)")
+            Self.log.error("engine start: \(error.localizedDescription, privacy: .public)")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
                 guard let self, !self.engine.isRunning else { return }
                 self.configureSession(recording: false)
-                try? self.engine.start()
+                do {
+                    try self.engine.start()
+                } catch {
+                    Self.log.error("engine retry: \(error.localizedDescription, privacy: .public)")
+                    return
+                }
                 for voice in self.voices { voice.play() }
             }
             return
@@ -213,9 +235,7 @@ final class SamplePlayer {
             voice.play()
         }
         let session = AVAudioSession.sharedInstance()
-        print(String(format: "audio: buffer %.2f ms (asked 3.00), output %.2f ms, rate %.0f Hz",
-                     session.ioBufferDuration * 1000, session.outputLatency * 1000,
-                     session.sampleRate))
+        Self.log.info("audio: buffer \(session.ioBufferDuration * 1000, format: .fixed(precision: 2)) ms (asked 3.00), output \(session.outputLatency * 1000, format: .fixed(precision: 2)) ms, rate \(session.sampleRate, format: .fixed(precision: 0)) Hz")
     }
 
     /// Play one hit. Velocity shapes gain through the ported curve; the slot

@@ -22,12 +22,13 @@ struct MixerView: View {
     private var slot: PadSlot { rack.slots[rack.selected] }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             header
             knobs
             buttons
             touch
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var header: some View {
@@ -134,13 +135,13 @@ struct MixerView: View {
                     .frame(width: 116)
             }
 
-            Spacer(minLength: 4)
+            if !force.available {
+                Text("no sensor")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(Palette.ink3)
+            }
 
-            Text(force.available
-                 ? String(format: "%.3f g \u{2192} %d", force.lastPeak, force.lastVelocity)
-                 : "no sensor")
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(force.lastVelocity > 0 ? Palette.signal : Palette.ink3)
+            Spacer(minLength: 4)
         }
     }
 
