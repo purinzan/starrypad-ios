@@ -68,7 +68,7 @@ struct ArtPad: View {
 
     /// Never fully dark. On the hardware the diffuser is always faintly on, and
     /// a grid of black squares tells you nothing about which bank you are in.
-    private var glowOpacity: Double { 0.26 + energy * 0.74 }
+    private var glowOpacity: Double { 0.62 + energy * 0.38 }
 
     var body: some View {
         ZStack {
@@ -86,9 +86,19 @@ struct ArtPad: View {
                 .scaleEffect(Panel.glowScale)
                 .opacity(glowOpacity)
                 .blendMode(.plusLighter)
+                // A second pass through the same mask. One tinted copy of a
+                // soft ring is a wash; laying it over itself gives the diffuser
+                // a bright core with the bloom still around it.
+            Panel.art("pad-glow")
+                .resizable()
+                .renderingMode(.template)
+                .foregroundStyle(hue)
+                .scaleEffect(Panel.glowScale * 0.97)
+                .opacity(0.45 + energy * 0.55)
+                .blendMode(.plusLighter)
         }
         .compositingGroup()
-        .shadow(color: hue.opacity(energy * 0.5), radius: energy * 14)
+        .shadow(color: hue.opacity(0.22 + energy * 0.55), radius: 4 + energy * 16)
         .opacity(dimmed ? 0.4 : 1)
     }
 }
@@ -184,7 +194,8 @@ struct ArtBezel<Content: View>: View {
 
     var body: some View {
         content
-            .padding(14)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 20)
             .background(
                 Panel.art("bezel")
                     .resizable(capInsets: Panel.Slice.bezel, resizingMode: .stretch)

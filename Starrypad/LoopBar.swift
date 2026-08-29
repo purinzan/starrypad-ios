@@ -31,7 +31,18 @@ struct LoopBar: View {
                             .offset(x: width * CGFloat(event.beat / total) - 1)
                     }
 
-                    if looper.state != .idle {
+                    // During the count the bar fills rather than sweeps, so
+                    // there is always something moving from the moment Rec is
+                    // pressed - the wait is the part that needs showing.
+                    if looper.state == .countIn {
+                        Rectangle()
+                            .fill(Palette.danger.opacity(0.25))
+                            .frame(width: width * CGFloat(looper.countProgress))
+                        Rectangle()
+                            .fill(Palette.danger)
+                            .frame(width: 2)
+                            .offset(x: width * CGFloat(looper.countProgress))
+                    } else if looper.state != .idle {
                         Rectangle()
                             .fill(looper.state == .recording ? Palette.danger : Palette.accent)
                             .frame(width: 2)

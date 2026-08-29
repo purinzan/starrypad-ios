@@ -43,6 +43,8 @@ final class Looper: ObservableObject {
     var canUndo: Bool { !history.isEmpty }
 
     private var startedAt: CFTimeInterval?
+    private var countStartedAt: CFTimeInterval?
+    private var playThroughCount = false
     private var lastCountBeat = -1
     private var lastPosition: Double = 0
     private var timer: DispatchSourceTimer?
@@ -68,20 +70,38 @@ final class Looper: ObservableObject {
             // was already there is touched.
             stop()
         case .playing:
+            // Recording again counts in too, and the take that follows starts
+            // at bar one. The tempo does not move: it is the same clock, and
+            // what you already recorded keeps playing through the count.
             pushHistory()
-            state = .recording
+            beginCountIn(keepPlaying: true)
         case .idle:
             pushHistory()
-            beginCountIn()
+            beginCountIn(keepPlaying: false)
         }
     }
 
     /// One bar of clicks, then the take starts on the downbeat.
-    private func beginCountIn() {
+    ///
+    /// The count has its own clock so the loop can restart at zero when it
+    /// ends. Anything already recorded keeps sounding through the count when
+    /// asked to, which is what makes overdubbing to a click feel like playing
+    /// along rather than starting over.
+    private func beginCountIn(keepPlaying: Bool) {
         countRemaining = 4
         lastCountBeat = -1
+        countStartedAt = CACurrentMediaTime()
+        playThroughCount = keepPlaying && !events.isEmpty
         state = .countIn
-        begin()
+        if playThroughCount, startedAt == nil { begin() } else if !playThroughCount { begin() }
+        if timer == nil { begin() }
+    }
+
+    /// How far through the count-in, 0 to 1, for the bar to show.
+    var countProgress: Double {
+        guard state == .countIn, let countStartedAt else { return 0 }
+        let beats = (CACurrentMediaTime() - countStartedAt) * bpm / 60.0
+        return max(0, min(1, beats / 4))
     }
 
     func togglePlay() {
@@ -101,6 +121,8 @@ final class Looper: ObservableObject {
         timer?.cancel()
         timer = nil
         startedAt = nil
+        countStartedAt = nil
+        playThroughCount = false
         lastPosition = 0
         countRemaining = 0
         lastCountBeat = -1
@@ -160,7 +182,9 @@ final class Looper: ObservableObject {
     private func tick() {
         if state == .countIn {
             countInTick()
-            return
+            // A count over an existing take still plays it, so the scheduler
+            // keeps running underneath.
+            guard playThroughCount else { return }
         }
         let now = position
         let previous = lastPosition
@@ -185,8 +209,8 @@ final class Looper: ObservableObject {
     /// The count runs on its own clock so the take can start at beat zero
     /// rather than one bar in.
     private func countInTick() {
-        guard let startedAt else { return }
-        let beats = (CACurrentMediaTime() - startedAt) * bpm / 60.0
+        guard let countStartedAt else { return }
+        let beats = (CACurrentMediaTime() - countStartedAt) * bpm / 60.0
         let beat = Int(beats)
         if beat > lastCountBeat, beat < 4 {
             lastCountBeat = beat
@@ -203,7 +227,11 @@ final class Looper: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.state == .countIn else { return }
             self.countRemaining = 0
+            self.countStartedAt = nil
+            self.playThroughCount = false
             self.state = .recording
+            // Restart the loop clock so the take begins at bar one, beat one -
+            // the beat right after the fourth click.
             self.begin()
         }
     }

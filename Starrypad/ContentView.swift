@@ -224,7 +224,7 @@ struct ContentView: View {
             transport
         case .mix:
             MixerView(rack: rack, master: $master, renaming: $renaming,
-                      velocityFromForce: $velocityFromForce, force: force,
+                      velocityFromForce: $velocityFromForce, force: force, looper: looper,
                       onTune: { player.invalidate(rack.slots[rack.selected].source) },
                       onAudition: { strike(rack.slots[rack.selected], velocity: 110, record: false) },
                       onMaster: { player.makeupDecibels = Float(master) })
@@ -276,7 +276,7 @@ struct ContentView: View {
     }
 
     private var transport: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             transportButton(
                 looper.state == .countIn ? "\(looper.countRemaining)" : "Rec",
                 tint: Palette.danger,

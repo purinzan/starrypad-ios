@@ -10,6 +10,7 @@ struct MixerView: View {
     @Binding var renaming: Bool
     @Binding var velocityFromForce: Bool
     @ObservedObject var force: StrikeForce
+    @ObservedObject var looper: Looper
     @FocusState private var nameFocused: Bool
     var onTune: () -> Void
     var onAudition: () -> Void
@@ -60,6 +61,13 @@ struct MixerView: View {
                 Slider(value: $master, in: 0...12, step: 0.5,
                        onEditingChanged: { editing in if !editing { onMaster() } })
                     .tint(Palette.danger)
+            }
+
+            // Tempo lives here as well as on the pads screen: it belongs to
+            // the whole instrument, not to the page you happen to be on.
+            knobRow("TEMPO", value: "\(Int(looper.bpm)) BPM") {
+                Slider(value: $looper.bpm, in: 40...240, step: 1)
+                    .tint(Palette.accent)
             }
 
             knobRow("LEVEL", value: String(format: "%.0f%%", slot.level * 100)) {
