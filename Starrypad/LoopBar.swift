@@ -13,11 +13,24 @@ struct LoopBar: View {
             // The strip already cost the height; saying nothing with it was
             // the waste. Length, which pass, and where in the bar.
             HStack(spacing: 0) {
-                Text("LOOP ").font(.system(size: 9, weight: .semibold)).kerning(1.1)
-                    .foregroundStyle(Palette.ink3)
-                Text("\(looper.bars) bar\(looper.bars == 1 ? "" : "s")")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                    .foregroundStyle(Palette.ink2)
+                // The label was already in the right place saying the right
+                // thing; all it needed was to be worth touching.
+                Button { looper.cycleLength() } label: {
+                    HStack(spacing: 0) {
+                        Text("LOOP ").font(.system(size: 9, weight: .semibold)).kerning(1.1)
+                            .foregroundStyle(Palette.ink3)
+                        Text("\(looper.bars) bar\(looper.bars == 1 ? "" : "s")")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundStyle(Palette.ink2)
+                    }
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 3)
+                            .strokeBorder(Palette.rule, lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
                 Spacer()
                 if looper.state != .idle {
                     Text("pass ").font(.system(size: 9, weight: .semibold)).kerning(1.1)
@@ -54,7 +67,7 @@ struct LoopBar: View {
                             .frame(maxHeight: .infinity, alignment: .top)
                     }
 
-                    ForEach(looper.events) { event in
+                    ForEach(looper.events.filter { $0.beat < total }) { event in
                         Capsule()
                             .fill(Palette.hueHint(Kit.pads[safe: event.padID]?.hue ?? Palette.ink3))
                             .frame(width: 2, height: 6 + 12 * CGFloat(event.velocity) / 127)

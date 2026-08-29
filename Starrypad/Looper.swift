@@ -58,11 +58,40 @@ final class Looper: ObservableObject {
         defer { scheduleLock.unlock() }
         return schedule
     }
+    /// How long the loop is, in bars.
+    ///
+    /// Changing it throws nothing away. Shrinking used to delete every hit
+    /// past the new end, which meant trying a one bar version of a four bar
+    /// idea destroyed three bars of playing for a tap - and taps are not
+    /// decisions. What lies beyond the end simply does not sound; grow the
+    /// loop again and it all comes back.
     @Published var bars: Int = UserDefaults.standard.object(forKey: "loop.bars") as? Int ?? 2 {
         didSet {
-            events = events.filter { $0.beat < totalBeats }
+            guard bars != oldValue else { return }
             UserDefaults.standard.set(bars, forKey: "loop.bars")
+            holdPlace()
         }
+    }
+
+    static let lengths = [1, 2, 4, 8]
+
+    func cycleLength() {
+        let next = (Self.lengths.firstIndex(of: bars).map { $0 + 1 } ?? 1) % Self.lengths.count
+        bars = Self.lengths[next]
+    }
+
+    /// Keep the playhead where it is in the bar when the loop changes length.
+    ///
+    /// Position is elapsed time folded by the loop length, so changing the
+    /// length alone would throw the playhead somewhere arbitrary. Re-anchoring
+    /// holds the place and only changes where the fold happens.
+    private func holdPlace() {
+        guard let started = startedAt else { return }
+        let now = CACurrentMediaTime()
+        let elapsed = (now - started) * bpm / 60.0
+        let place = elapsed.truncatingRemainder(dividingBy: totalBeats)
+        startedAt = now - place * 60.0 / bpm
+        lastPosition = place
     }
     @Published var bpm: Double = UserDefaults.standard.object(forKey: "loop.bpm") as? Double ?? 120 {
         didSet {
@@ -398,10 +427,11 @@ final class Looper: ObservableObject {
         // The window is normally tiny and forward; at the loop point it wraps,
         // and then it is two windows, not one.
         let due: [Event]
+        let inside = take.filter { $0.beat < totalBeats }
         if now >= previous {
-            due = take.filter { $0.beat > previous && $0.beat <= now }
+            due = inside.filter { $0.beat > previous && $0.beat <= now }
         } else {
-            due = take.filter { $0.beat > previous || $0.beat <= now }
+            due = inside.filter { $0.beat > previous || $0.beat <= now }
         }
         guard !due.isEmpty else { return }
         DispatchQueue.main.async { [weak self] in

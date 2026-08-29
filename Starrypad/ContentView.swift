@@ -1039,13 +1039,16 @@ struct ContentView: View {
     private func export(_ format: ExportFormat) {
         do {
             let url: URL
+            // What lies past the end of the loop is kept but never sounds, so
+            // it has no business in a file either.
+            let take = looper.events.filter { $0.beat < looper.totalBeats }
             switch format {
             case .wav:
-                url = try Export.wav(events: looper.events, bars: looper.bars,
+                url = try Export.wav(events: take, bars: looper.bars,
                                      bpm: looper.bpm, slots: rack.slots,
                                      audible: rack.audible, player: player)
             case .midi:
-                url = try Export.midi(events: looper.events, bars: looper.bars,
+                url = try Export.midi(events: take, bars: looper.bars,
                                       bpm: looper.bpm, slots: rack.slots)
             }
             exported = ExportedFile(url: url)
