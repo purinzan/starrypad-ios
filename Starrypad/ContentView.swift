@@ -39,6 +39,8 @@ struct ContentView: View {
     @State private var carrying: Int?
     @State private var carryPoint: CGPoint = .zero
     @State private var dropping = false
+    @State private var carryOrigin: CGPoint = .zero
+    @State private var escaped = false
     @State private var recordings: [String] = []
 
     @State private var renaming = false
@@ -80,7 +82,18 @@ struct ContentView: View {
         .background(PanelGround())
         .preferredColorScheme(.dark)
         .onAppear(perform: begin)
-        .overlay { if let carrying { carriedPad(carrying) } }
+        .overlay {
+            GeometryReader { proxy in
+                if let carrying {
+                    let frame = proxy.frame(in: .global)
+                    carriedPad(carrying)
+                        .position(x: carryPoint.x - frame.minX,
+                                  y: carryPoint.y - frame.minY)
+                }
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+        }
         .overlay { if let menuFor { padMenu(for: menuFor) } }
         .sheet(item: pickingBinding) { target in soundPicker(for: target.id) }
         .sheet(isPresented: $pickingVideo) { videoPicker }
@@ -134,9 +147,6 @@ struct ContentView: View {
         .frame(width: cell.width, height: cell.height)
         .scaleEffect(dropping ? 1.0 : 1.12)
         .shadow(color: .black.opacity(0.5), radius: 16, y: 8)
-        .position(carryPoint)
-        .allowsHitTesting(false)
-        .ignoresSafeArea()
     }
 
     private func padMenu(for slotID: Int) -> some View {
@@ -166,7 +176,12 @@ struct ContentView: View {
     }
 
     private func closeMenu() {
-        withAnimation(.easeOut(duration: 0.16)) { menuFor = nil }
+        withAnimation(.easeOut(duration: 0.16)) {
+            menuFor = nil
+            carrying = nil
+        }
+        held = nil
+        escaped = false
     }
 
     private var pickingBinding: Binding<PadTarget?> {
@@ -476,13 +491,28 @@ struct ContentView: View {
     private struct Press {
         var slot: Int
         var origin: Int          // the position it landed on
+        var point: CGPoint       // where the finger is, in the grid's space
         var dragged = false
         var target: Int?
     }
 
-    private func touchDown(id: Int, position: Int, depth: Double) {
+    /// How far the finger must travel to pull a held pad out of its menu.
+    ///
+    /// Matched to the home screen: a held icon resists a little, and only
+    /// commits to being carried once you clearly mean it. Without the
+    /// resistance the smallest wobble tears the menu away from under you.
+    private static let escapeDistance: CGFloat = 26
+
+    /// The classic rubber band: full movement at zero, asymptotically none.
+    /// The pad leans towards the finger without leaving home.
+    private static func resisted(_ delta: CGFloat) -> CGFloat {
+        let pull = Self.escapeDistance
+        return (1 - 1 / (abs(delta) / pull + 1)) * pull * (delta < 0 ? -1 : 1)
+    }
+
+    private func touchDown(id: Int, position: Int, depth: Double, point: CGPoint) {
         let slotID = rack.bank * Banks.padCount + position
-        presses[id] = Press(slot: slotID, origin: position)
+        presses[id] = Press(slot: slotID, origin: position, point: point)
         rack.selected = slotID
 
         let byPosition = 24 + Int(depth * 103)
@@ -497,9 +527,16 @@ struct ContentView: View {
                   !press.dragged, held == nil else { return }
             held = press.slot
             swapTarget = nil
+            escaped = false
+            carryOrigin = press.point
             UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
             menuAnchor = cellFrame(for: press.slot)
+            // The pad lifts with the menu, not when you start moving: on the
+            // home screen the icon is already off the surface while you read
+            // the menu, which is what tells you it can be moved.
+            carryPoint = CGRect.center(of: cellFrame(for: press.slot))
             withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                carrying = press.slot
                 menuFor = press.slot
             }
         }
@@ -507,29 +544,47 @@ struct ContentView: View {
 
     private func touchMoved(id: Int, position: Int?, point: CGPoint) {
         guard var press = presses[id] else { return }
-        if let position, position != press.origin { press.dragged = true }
-        if held == press.slot, press.dragged {
-            // Dragging out of the menu puts it away and lifts the pad, which
-            // is what the home screen does and what a finger already moving
-            // clearly means.
-            if menuFor != nil { withAnimation(.easeOut(duration: 0.14)) { menuFor = nil } }
-            if carrying == nil {
-                withAnimation(.spring(response: 0.22, dampingFraction: 0.7)) {
-                    carrying = press.slot
-                }
-            }
-            carryPoint = CGPoint(x: gridOrigin.x + point.x, y: gridOrigin.y + point.y)
-            if let position { swapTarget = rack.bank * Banks.padCount + position }
-        }
+        press.point = point
         press.target = position.map { rack.bank * Banks.padCount + $0 }
-        presses[id] = press
+        defer { presses[id] = press }
+
+        guard held == press.slot else {
+            if let position, position != press.origin { press.dragged = true }
+            return
+        }
+
+        let delta = CGPoint(x: point.x - carryOrigin.x, y: point.y - carryOrigin.y)
+        let distance = sqrt(delta.x * delta.x + delta.y * delta.y)
+
+        if !escaped {
+            guard distance > Self.escapeDistance else {
+                // Still in the menu's grip: the pad leans towards the finger
+                // and springs back rather than following it.
+                let home = CGRect.center(of: cellFrame(for: press.slot))
+                carryPoint = CGPoint(x: home.x + Self.resisted(delta.x),
+                                     y: home.y + Self.resisted(delta.y))
+                return
+            }
+            // Pulled free. The menu goes, and from here the pad is simply
+            // wherever the finger is.
+            escaped = true
+            press.dragged = true
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+            withAnimation(.easeOut(duration: 0.14)) { menuFor = nil }
+        }
+
+        press.dragged = true
+        carryPoint = CGPoint(x: gridOrigin.x + point.x, y: gridOrigin.y + point.y)
+        if let position { swapTarget = rack.bank * Banks.padCount + position }
     }
 
     private func touchUp(id: Int) {
         guard let press = presses.removeValue(forKey: id) else { return }
         guard held == press.slot else { return }
         held = nil
-        guard press.dragged else { swapTarget = nil; return }   // the menu is already up
+        // A hold that never escaped is a menu, and the menu is already open;
+        // the pad stays lifted under it until something closes it.
+        guard escaped else { swapTarget = nil; return }
 
         let source = press.slot
         let target = swapTarget
@@ -545,7 +600,8 @@ struct ContentView: View {
             status = "\(Banks.label(for: source)) and \(Banks.label(for: target)) swapped"
             UINotificationFeedbackGenerator().notificationOccurred(.success)
         } else {
-            // Nowhere to go: it drops back where it came from.
+            // Anywhere that is not another pad - the transport, the knobs, off
+            // the grid entirely - is not a destination, so it goes home.
             carryPoint = CGRect.center(of: cellFrame(for: source))
         }
         dropping = true
@@ -553,6 +609,7 @@ struct ContentView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) {
             carrying = nil
             swapTarget = nil
+            escaped = false
         }
     }
 

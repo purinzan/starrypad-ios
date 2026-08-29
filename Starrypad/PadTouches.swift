@@ -14,8 +14,8 @@ import UIKit
 /// screen is the last four positions because pad 0 is bottom left.
 struct PadTouches: UIViewRepresentable {
 
-    /// A touch landing: which position, and how far up the pad it hit.
-    var onDown: (Int, Int, Double) -> Void          // id, position, depth 0...1
+    /// A touch landing: which position, how far up the pad it hit, and where.
+    var onDown: (Int, Int, Double, CGPoint) -> Void
     /// id, the position under it now, and where the finger actually is - the
     /// point is what a pad being carried follows.
     var onMove: (Int, Int?, CGPoint) -> Void
@@ -38,7 +38,7 @@ struct PadTouches: UIViewRepresentable {
     }
 
     final class TouchView: UIView {
-        var onDown: ((Int, Int, Double) -> Void)?
+        var onDown: ((Int, Int, Double, CGPoint) -> Void)?
         var onMove: ((Int, Int?, CGPoint) -> Void)?
         var onUp: ((Int) -> Void)?
 
@@ -59,10 +59,11 @@ struct PadTouches: UIViewRepresentable {
 
         override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
             for touch in touches {
-                guard let hit = cell(at: touch.location(in: self)) else { continue }
+                let point = touch.location(in: self)
+                guard let hit = cell(at: point) else { continue }
                 nextID &+= 1
                 ids[ObjectIdentifier(touch)] = nextID
-                onDown?(nextID, hit.position, hit.depth)
+                onDown?(nextID, hit.position, hit.depth, point)
             }
         }
 
