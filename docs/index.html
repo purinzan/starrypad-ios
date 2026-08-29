@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Starrypad — Support</title>
+<style>
+  :root { color-scheme: light dark; --ink: #17181a; --ink2: #4a4d52; --ground: #fbfaf8; --rule: #e2ded8; --accent: #b4661f; --card: #ffffff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink: #e8e6e3; --ink2: #9a9791; --ground: #16171a; --rule: #2c2e33; --accent: #e0a45c; --card: #1d1f23; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ground); color: var(--ink);
+         font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 42rem; margin: 0 auto; padding: 4rem 1.5rem 6rem; }
+  h1 { font-size: 2.2rem; line-height: 1.1; margin: 0 0 .4rem; letter-spacing: -0.03em; }
+  .sub { color: var(--ink2); font-size: 1.1rem; margin: 0 0 3rem; }
+  h2 { font-size: 1.05rem; margin: 2.8rem 0 .8rem; letter-spacing: -0.01em; }
+  p { margin: 0 0 1rem; }
+  dl { margin: 0; }
+  dt { font-weight: 600; margin-top: 1.4rem; }
+  dd { margin: .3rem 0 0; color: var(--ink2); }
+  .card { background: var(--card); border: 1px solid var(--rule); border-radius: 10px;
+          padding: 1.2rem 1.4rem; margin-top: 1rem; }
+  footer { margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--rule);
+           color: var(--ink2); font-size: .9rem; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Starrypad</h1>
+  <p class="sub">A drum pad for iPhone, with a looper, a sampler and USB MIDI in.</p>
+
+  <h2>Getting help</h2>
+  <div class="card">
+    <p style="margin:0">Email <a href="mailto:ijuinryo1997811@gmail.com">ijuinryo1997811@gmail.com</a>.
+    Say which iPhone you are on and what you were doing; if it involves a MIDI
+    controller, say which one.</p>
+  </div>
+
+  <h2>Common questions</h2>
+  <dl>
+    <dt>My USB MIDI controller does nothing.</dt>
+    <dd>Connect it through a powered adapter — some controllers draw more than
+    the phone will give them. When it is seen, the dot at the top turns green
+    and names it. If the pads are in the wrong order, tap Learn and hit each
+    pad once, bottom left first.</dd>
+
+    <dt>How do I put my own sound on a pad?</dt>
+    <dd>Tap Sampler, then record from the microphone or take the audio from a
+    video. Drag on the waveform to choose the part that plays, then assign it
+    to the selected pad. The original is kept, so you can re-trim later.</dd>
+
+    <dt>How do I move a pad?</dt>
+    <dd>Hold it. The menu opens; keep dragging and the pad lifts, and dropping
+    it on another pad swaps the two. Everything moves with the sound — level,
+    tuning, trim, name — including anything you have already recorded.</dd>
+
+    <dt>Recording starts on its own.</dt>
+    <dd>Rec counts you in for one bar. If a loop is already playing, Rec waits
+    for the bar line so nothing you are hearing shifts; the button reads “Cue”
+    while it waits, and pressing it again cancels.</dd>
+
+    <dt>Undo took away more than I wanted.</dt>
+    <dd>Undo removes one pass round the loop, newest first — not the whole
+    take. Press it again for the pass before that.</dd>
+
+    <dt>Where are my recordings?</dt>
+    <dd>On your phone, inside the app. They are never uploaded. Deleting the
+    app deletes them, so anything you want to keep should be recorded
+    elsewhere too.</dd>
+  </dl>
+
+  <h2>Privacy</h2>
+  <p>Starrypad collects nothing at all. <a href="privacy.html">Read the policy</a>.</p>
+
+  <h2>Credits</h2>
+  <p>The acoustic kit is the Salamander Drumkit by Alexander Holm, licensed
+  <a href="https://creativecommons.org/licenses/by/3.0/">CC BY 3.0</a>. The 808
+  sounds come from Michael Fischer's TR-808 sample set as published by
+  TidalCycles under
+  <a href="https://creativecommons.org/publicdomain/zero/1.0/">CC0 1.0</a>. The
+  same credits are in the app, behind the info button.</p>
+
+  <footer>© 2026 Ryo Ijuin</footer>
+</main>
+</body>
+</html>
