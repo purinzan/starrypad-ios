@@ -15,6 +15,10 @@ final class Looper: ObservableObject {
         var beat: Double
         var padID: Int
         var velocity: Int
+        /// Which time round the loop this was played on. Undo peels one pass
+        /// at a time, so an overdub that went wrong costs you that pass and
+        /// not the whole take.
+        var pass: Int = 0
     }
 
     enum State: Equatable {
@@ -29,7 +33,29 @@ final class Looper: ObservableObject {
     @Published var bars: Int = 2 {
         didSet { events = events.filter { $0.beat < totalBeats } }
     }
-    @Published var bpm: Double = 120
+    @Published var bpm: Double = 120 {
+        didSet { reanchor(from: oldValue) }
+    }
+
+    /// Keep the playhead where it is when the tempo changes.
+    ///
+    /// Position is elapsed time read at the current tempo, so changing the
+    /// tempo alone would move it - a loop playing at bar three would jump
+    /// somewhere else the moment you turned the knob. Re-anchoring the start
+    /// time holds the beat still and only changes how fast the next one
+    /// arrives, which is what turning a tempo knob is supposed to do.
+    private func reanchor(from oldBPM: Double) {
+        guard oldBPM > 0, bpm > 0, oldBPM != bpm else { return }
+        let now = CACurrentMediaTime()
+        if let started = startedAt {
+            let beats = (now - started) * oldBPM / 60.0
+            startedAt = now - beats * 60.0 / bpm
+        }
+        if let counting = countStartedAt {
+            let beats = (now - counting) * oldBPM / 60.0
+            countStartedAt = now - beats * 60.0 / bpm
+        }
+    }
 
     /// Called on the main queue when a recorded hit comes back round.
     var onFire: ((Int, Int) -> Void)?
@@ -49,7 +75,14 @@ final class Looper: ObservableObject {
     @Published private(set) var sweep: Double = 0
 
     var totalBeats: Double { Double(bars * 4) }
-    var canUndo: Bool { !history.isEmpty }
+    var canUndo: Bool { !events.isEmpty || !history.isEmpty }
+
+    /// How many times round the loop has gone since recording started.
+    private var currentPass: Int {
+        guard let startedAt else { return 0 }
+        let beats = (CACurrentMediaTime() - startedAt) * bpm / 60.0
+        return max(0, Int(beats / totalBeats))
+    }
 
     private var startedAt: CFTimeInterval?
     private var countStartedAt: CFTimeInterval?
@@ -147,7 +180,20 @@ final class Looper: ObservableObject {
         stop()
     }
 
+    /// Peel the most recent pass, newest first.
+    ///
+    /// Undoing a whole take because one overdub went wrong is the behaviour
+    /// of a text editor, not an instrument: you keep playing over a loop until
+    /// something lands badly, and what you want back is the last time round -
+    /// not everything since you pressed record.
     func undo() {
+        if let newest = events.map(\.pass).max() {
+            events.removeAll { $0.pass == newest }
+            if events.isEmpty, history.isEmpty { stop() }
+            return
+        }
+        // Nothing left to peel: fall back to whatever was there before, which
+        // is how a cleared take comes back.
         guard let previous = history.popLast() else { return }
         events = previous
         if events.isEmpty { stop() }
@@ -164,8 +210,12 @@ final class Looper: ObservableObject {
             // whole loop late. Drummers play ahead of the beat; this is the
             // same rounding a sequencer does at the wrap.
             let now = position
-            let beat = now > totalBeats - Self.aheadOfBeat ? 0 : now
-            events.append(Event(beat: beat, padID: padID, velocity: velocity))
+            let wrapping = now > totalBeats - Self.aheadOfBeat
+            // A hit rounded forward onto the next downbeat belongs to the pass
+            // it will play in, not the one it was struck in.
+            let beat = wrapping ? 0 : now
+            let pass = currentPass + (wrapping ? 1 : 0)
+            events.append(Event(beat: beat, padID: padID, velocity: velocity, pass: pass))
 
         case .countIn:
             // The count-in hands over asynchronously, so for a few
@@ -173,12 +223,12 @@ final class Looper: ObservableObject {
             // counting while the player is already on beat one. A hit landing
             // there was thrown away - exactly the hit that starts the take.
             guard let startedCountAt = countStartedAt else {
-                events.append(Event(beat: 0, padID: padID, velocity: velocity))
+                events.append(Event(beat: 0, padID: padID, velocity: velocity, pass: 0))
                 return
             }
             let beats = (CACurrentMediaTime() - startedCountAt) * bpm / 60.0
             guard beats > 4 - Self.aheadOfBeat else { return }
-            events.append(Event(beat: 0, padID: padID, velocity: velocity))
+            events.append(Event(beat: 0, padID: padID, velocity: velocity, pass: 0))
 
         case .idle, .playing:
             return
