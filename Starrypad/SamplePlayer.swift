@@ -325,9 +325,13 @@ final class SamplePlayer {
         voiceGroups[index] = slot.chokeGroup
         voiceSources[index] = slot.source.key
         let voice = voices[index]
-        voice.volume = Velocity.gain(velocity) * Float(slot.level)
+        // A decibel either way. Small enough that nobody reaches for the
+        // mixer, large enough that two hits in a row are two hits.
+        let jitter = pow(10, Float.random(in: -Self.gainJitterDecibels...Self.gainJitterDecibels) / 20)
+        voice.volume = Velocity.gain(velocity) * Float(slot.level) * jitter
         voice.pan = Float(max(-1, min(1, slot.pan)))
-        schedule(buffer, on: index)
+        let key = "\(slot.source.key)|\(slot.start)|\(slot.end)|\(slot.tune)"
+        schedule(humanised(buffer, key: key, source: slot.source), on: index)
     }
 
     /// The voice a pad at its limit should take over, if it is at its limit.
@@ -372,6 +376,54 @@ final class SamplePlayer {
                 self.voiceSources[index] = nil
             }
         }
+    }
+
+    // MARK: - Humanising
+
+    /// How far a hit may stray from the one before it.
+    ///
+    /// A real kit never makes the same sound twice: the stick lands somewhere
+    /// slightly different, on a head that is still moving from the last hit.
+    /// A sampler that replays one identical waveform is what "programmed"
+    /// sounds like, and it is loudest on sixteenth hats, where the ear hears
+    /// a machine gun rather than a drummer.
+    ///
+    /// A percent and a half of pitch is about a quarter of a semitone - under
+    /// what anyone hears as out of tune, over what the ear reads as identical.
+    private static let detune = 0.015
+    private static let gainJitterDecibels: Float = 1
+
+    /// The variants, made once per sound and only for the sounds that need
+    /// them.
+    ///
+    /// Short ones only: what gets machine-gunned is hats, rims, claps and
+    /// shakers, never a ride left to ring. Skipping everything over a second
+    /// and a half is what keeps this at nine megabytes instead of fifty, and
+    /// the crash has a voice limit for the same reason.
+    private static let longestToVary = 1.5
+
+    private var variants: [String: [AVAudioPCMBuffer]] = [:]
+
+    /// One of three renderings of the same sound, chosen at random.
+    ///
+    /// Built-in sounds only. A recording might be a bass note or a word, and
+    /// detuning something the person chose themselves is a liberty; their
+    /// samples get the level jitter and nothing else.
+    private func humanised(_ buffer: AVAudioPCMBuffer, key: String,
+                           source: SoundSource) -> AVAudioPCMBuffer {
+        guard case .builtIn = source else { return buffer }
+        let seconds = Double(buffer.frameLength) / buffer.format.sampleRate
+        guard seconds < Self.longestToVary else { return buffer }
+
+        if let made = variants[key] {
+            return made.randomElement() ?? buffer
+        }
+        var made = [buffer]
+        for ratio in [1 - Self.detune, 1 + Self.detune] {
+            if let shifted = Self.resample(buffer, ratio: ratio) { made.append(shifted) }
+        }
+        variants[key] = made
+        return made.randomElement() ?? buffer
     }
 
     /// Hear a sound without playing it: one at a time, replacing the last.
@@ -482,6 +534,9 @@ final class SamplePlayer {
         for key in peakCache.keys where key.hasPrefix(source.key) {
             peakCache.removeValue(forKey: key)
         }
+        for key in variants.keys where key.hasPrefix(source.key) {
+            variants.removeValue(forKey: key)
+        }
     }
 
     // MARK: - Deriving
@@ -530,7 +585,11 @@ final class SamplePlayer {
     /// Varispeed tuning: resample, so pitch and length move together, which is
     /// what tune means on a sampler and what the desktop does.
     private static func retune(_ buffer: AVAudioPCMBuffer, semitones: Int) -> AVAudioPCMBuffer? {
-        let ratio = pow(2.0, Double(semitones) / 12.0)
+        resample(buffer, ratio: pow(2.0, Double(semitones) / 12.0))
+    }
+
+    private static func resample(_ buffer: AVAudioPCMBuffer, ratio: Double)
+    -> AVAudioPCMBuffer? {
         let total = Int(buffer.frameLength)
         let length = max(1, Int(Double(total) / ratio))
         guard let out = AVAudioPCMBuffer(pcmFormat: buffer.format,
