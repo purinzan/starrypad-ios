@@ -9,113 +9,85 @@ described at the end.
 ## Notes field (copy from here)
 
 ```
-Starrypad is a standalone musical instrument. There is no account, no login, no
-purchase or subscription, no user-generated content shared between users, and no
-network communication of any kind. Everything below is available immediately on
-first launch.
+Starrypad is a standalone musical instrument. No account, no login, no purchase
+or subscription, no user-generated content shared between users, and no network
+communication. Everything is available on first launch.
 
 1. SCREEN RECORDING
-A recording captured on a physical iPhone 17e running iOS 26.6 is attached. It
-starts from the Home Screen and covers: playing the pads, switching kits,
-recording and overdubbing a loop, undoing one pass, the mixer, sampling from the
-microphone (including the microphone permission prompt), sampling audio from a
-video (including the system video picker), trimming a sample onto a pad, and
-exporting the loop to the system share sheet.
+Attached, captured on a physical iPhone 17e running iOS 26.6. It starts from the
+Home Screen and shows playing the pads, switching kits, recording and overdubbing
+a loop, the mixer, sampling from the microphone (with the permission prompt),
+sampling from a video (with the system picker), and exporting to the share
+sheet.
 
-2. DEVICES AND OPERATING SYSTEMS TESTED
-- iPhone 17e, iOS 26.6 (physical device; primary test device)
-- iPhone 17e simulator, iOS 26.5
-- iPhone 17 Pro simulator, iOS 26.5
-- iPhone 17 Pro Max simulator, iOS 26.5
-Deployment target is iOS 17.0. The app is iPhone only.
+2. DEVICES AND OS TESTED
+iPhone 17e, iOS 26.6 (physical, primary test device). Simulators on iOS 26.5:
+iPhone 17e, 17 Pro, 17 Pro Max. Deployment target iOS 17.0. iPhone only.
 
 3. FUNCTION AND AUDIENCE
-Starrypad is a drum pad, looper and sampler for iPhone.
+A drum pad, looper and sampler for iPhone.
 
-Problem it solves: people who make music have rhythm ideas away from their
-studio - commuting, on a break, before sleep - and those ideas are lost by the
-time they reach their equipment. Starrypad is for capturing one before it is
-forgotten, and getting it out to a computer afterwards.
+Problem: rhythm ideas arrive away from the studio and are lost by the time you
+reach your equipment. Starrypad catches one before it is forgotten and gets it
+out to a computer afterwards.
 
-Audience: anyone who makes beats or plays drums, from beginners to people who
-already use a DAW. It is not a game and contains no objectionable content; it is
-suitable for all ages.
+Audience: anyone who makes beats or plays drums, beginner to DAW user. Not a
+game, no objectionable content, suitable for all ages.
 
 Value: velocity comes from how hard the screen is struck, read from the
-accelerometer, rather than from where on the pad the finger landed, so the app
-plays like an instrument rather than a set of buttons. Recording waits for the
-bar line so that overdubbing never interrupts what is already playing. Finished
-loops can be exported as WAV or MIDI.
+accelerometer, not from where the finger landed, so it plays like an instrument
+rather than a set of buttons. Recording waits for the bar line, so overdubbing
+never interrupts what is already playing. Loops export as WAV or MIDI.
 
-4. SETTING UP AND REACHING THE MAIN FEATURES
-No setup, no credentials, and no sample files are required. Launch the app and
-the instrument is on screen.
-
-- Play: tap the sixteen pads. Harder taps are louder.
-- Change kit: the four buttons above the pads (A Acoustic, B 808, C, D).
-- Record a loop: tap Rec. The app counts one bar, then records. Tap pads to play
-  into it. Tap Rec again to stop recording and keep the loop playing. Tap Undo to
-  remove the most recent layer.
-- Mixer: the Mixer button at the top. Level, pan, tuning, mute and solo for the
-  selected pad.
-- Sampler: the Sampler button at the top. "Record from the microphone" records a
-  new sound (this is the only place the microphone is requested). "Take the sound
-  from a video" opens the system video picker. Drag on the waveform to choose the
-  part that plays, then assign it to the selected pad.
-- Export: the share icon at the top right, enabled once something is recorded.
-  Choose WAV or MIDI; the file is handed to the standard iOS share sheet.
-- Settings and credits: the gear and info icons at the top right.
-- Rearrange pads: press and hold a pad, then drag it onto another.
+4. SETUP AND REACHING THE FEATURES
+No setup, no credentials, no sample files needed. Launch and the instrument is
+on screen. Tap the sixteen pads to play; harder taps are louder. The four
+buttons above them change kit. Rec counts one bar then records, Rec again keeps
+the loop playing, Undo removes the newest layer. Mixer holds level, pan, tuning,
+mute and solo for the selected pad. Sampler records from the microphone or takes
+audio from a video, and the waveform is dragged to pick the part that plays. The
+share icon exports WAV or MIDI. The gear and info icons hold settings and the
+sample credits. Holding a pad and dragging it onto another rearranges the kit.
 
 5. EXTERNAL SERVICES, TOOLS OR PLATFORMS
-None. The app uses no external services of any kind:
-- no data providers, no authentication services, no payment processors, no AI
-  services, no advertising, no analytics, no crash reporting
-- no third-party SDKs or frameworks; only Apple frameworks (SwiftUI,
-  AVFoundation, CoreMIDI, CoreMotion, PhotosUI, MessageUI)
-- no network code whatsoever. The app behaves identically in Airplane Mode.
-
-Audio samples are bundled inside the app. Nothing is downloaded at runtime.
+None. No data providers, authentication, payment processors, AI services,
+advertising, analytics or crash reporting. No third-party SDKs - only Apple
+frameworks. No network code at all; the app behaves identically in Airplane
+Mode. Audio samples are bundled; nothing is downloaded at runtime.
 
 6. REGIONAL DIFFERENCES
-None. The app functions identically in every region. There is no
-region-dependent content, no geolocation, and no server to vary behaviour. The
-interface is available in English and Japanese, which changes wording only.
+None. Identical in every region: no region-dependent content, no geolocation, no
+server. The interface is in English and Japanese, which changes wording only.
 
-7. THIRD-PARTY MATERIAL AND AUTHORISATION
-Starrypad is not in a regulated industry. It contains third-party audio samples,
-all of which are used under licences that permit redistribution:
+7. THIRD-PARTY MATERIAL
+Not a regulated industry. The bundled samples are under licences that permit
+redistribution:
+- Acoustic kit: Salamander Drumkit by Alexander Holm, CC BY 3.0
+  (creativecommons.org/licenses/by/3.0/). This licence requires attribution,
+  which is given inside the app behind the info button and in the App Store
+  description.
+- 808 kit: TR-808 Sound Sample Set by Michael Fischer as published by
+  TidalCycles, CC0 1.0 (creativecommons.org/publicdomain/zero/1.0/).
+- Glass sounds: generated by the developer, not recorded.
+Full terms: github.com/purinzan/starrypad-ios/blob/main/LICENSE-SAMPLES
 
-- Acoustic kit: Salamander Drumkit by Alexander Holm, licensed CC BY 3.0
-  (https://creativecommons.org/licenses/by/3.0/). This licence requires
-  attribution. Attribution is given inside the app, on the screen behind the
-  info button at the top right, and again in the App Store description.
-- 808 kit: Roland TR-808 Sound Sample Set by Michael Fischer, as published by
-  the TidalCycles project under CC0 1.0
-  (https://creativecommons.org/publicdomain/zero/1.0/). CC0 imposes no
-  conditions.
-- Glass sounds: generated for this app by the developer, not recorded.
+PERMISSIONS
+The microphone is requested only when the reviewer taps "Record from the
+microphone" in the Sampler, and only to record the sound being sampled onto a
+pad; recordings stay on the device. The video picker is
+PHPickerViewController, running outside the app, so the app never gets the photo
+library - only the chosen video, long enough to read the first thirty seconds of
+its audio. There is no App Tracking Transparency prompt; the app does not
+track.
 
-The full terms are also published at
-https://github.com/purinzan/starrypad-ios/blob/main/LICENSE-SAMPLES
+BACKGROUND AUDIO
+The audio background mode is declared so sound continues when the screen locks:
+a connected controller can still be played and a loop keeps running. To see it,
+record a short loop, press Play and lock the phone.
 
-ADDITIONAL NOTES
-
-Permissions. The microphone is requested only when the reviewer taps "Record
-from the microphone" inside the Sampler, and only to record the sound being
-sampled onto a pad. Recordings stay on the device. The video picker is
-PHPickerViewController, which runs outside the app, so the app never receives
-access to the photo library - only to the single video chosen, and only long
-enough to read the first thirty seconds of its audio. There is no App Tracking
-Transparency prompt because the app does not track.
-
-Background audio. The app declares the audio background mode so that sound
-continues when the screen locks: a connected USB MIDI controller can still be
-played, and a recorded loop keeps running. To see this, record a short loop,
-press Play, and lock the phone; the loop continues.
-
-USB MIDI. A class-compliant USB MIDI controller is supported but is not required
-for review. Every feature is reachable from the pads on screen.
+USB MIDI
+A class-compliant controller is supported but not required for review; every
+feature is reachable from the pads on screen.
 ```
 
 ---
