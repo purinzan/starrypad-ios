@@ -11,7 +11,7 @@ described at the end.
 ```
 Starrypad is a standalone musical instrument. No account, no login, no purchase
 or subscription, no user-generated content shared between users, and no network
-communication. Everything is available on first launch.
+communication.
 
 1. SCREEN RECORDING
 Attached, captured on a physical iPhone 17e running iOS 26.6. It starts from the
@@ -37,7 +37,7 @@ game, no objectionable content, suitable for all ages.
 Value: velocity comes from how hard the screen is struck, read from the
 accelerometer, not from where the finger landed, so it plays like an instrument
 rather than a set of buttons. Recording waits for the bar line, so overdubbing
-never interrupts what is already playing. Loops export as WAV or MIDI.
+never interrupts what is already playing.
 
 4. SETUP AND REACHING THE FEATURES
 No setup, no credentials, no sample files needed. Launch and the instrument is
