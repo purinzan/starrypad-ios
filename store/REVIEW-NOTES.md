@@ -74,11 +74,10 @@ Full terms: github.com/purinzan/starrypad-ios/blob/main/LICENSE-SAMPLES
 PERMISSIONS
 The microphone is requested only when the reviewer taps "Record from the
 microphone" in the Sampler, and only to record the sound being sampled onto a
-pad; recordings stay on the device. The video picker is
-PHPickerViewController, running outside the app, so the app never gets the photo
-library - only the chosen video, long enough to read the first thirty seconds of
-its audio. There is no App Tracking Transparency prompt; the app does not
-track.
+pad; recordings stay on the device. The video picker is PHPickerViewController,
+running outside the app, so the app never gets the photo library - only the
+chosen video, long enough to read its first thirty seconds of audio. There is no
+App Tracking Transparency prompt; the app does not track.
 
 BACKGROUND AUDIO
 The audio background mode is declared so sound continues when the screen locks:
